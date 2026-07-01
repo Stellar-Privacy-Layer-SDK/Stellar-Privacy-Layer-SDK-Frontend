@@ -1,0 +1,28 @@
+{
+  "name": "stellar-privacy-layer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "🔒 Stellar Privacy Layer — Confidential Transfers SDK",
+  "workspaces": [
+    "packages/core-sdk",
+    "packages/dapp"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "build:sdk": "npm run build -w packages/core-sdk",
+    "build:dapp": "npm run build -w packages/dapp",
+    "dev": "npm run dev -w packages/dapp",
+    "dev:sdk": "npm run dev -w packages/core-sdk",
+    "lint": "npm run lint --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "clean": "npm run clean --workspaces"
+  },
+  "devDependencies": {
+    "@types/events": "^3.0.3",
+    "@types/node": "^26.0.1",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

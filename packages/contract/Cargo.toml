@@ -1,0 +1,19 @@
+[package]
+name = "stellar-privacy-verifier"
+version = "0.1.0"
+edition = "2021"
+description = "Soroban verifier contract for Stellar Privacy Layer — validates Groth16 proofs over BN254 with Poseidon hashes"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+soroban-sdk = { version = "21.0.0", features = ["builtin-zk"] }
+serde = { version = "1", default-features = false, features = ["derive"] }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+lto = true

@@ -1,0 +1,143 @@
+import { describe, it, expect } from 'vitest';
+import {
+  poseidonHash,
+  sha256,
+  generateRandomField,
+  generateNullifier,
+  generateCommitment,
+  poseidonHash2,
+  computeMerkleRoot,
+  generateMerklePath,
+  generateViewingKeyPair,
+  encryptWithPublicKey,
+} from './crypto';
+
+describe('poseidonHash', () => {
+  it('returns a 0x-prefixed 64-char hex string', async () => {
+    const result = await poseidonHash(['123', '456']);
+    expect(result).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('is deterministic for same inputs', async () => {
+    const a = await poseidonHash(['hello', 'world']);
+    const b = await poseidonHash(['hello', 'world']);
+    expect(a).toBe(b);
+  });
+
+  it('changes output when any input changes', async () => {
+    const a = await poseidonHash(['hello', 'world']);
+    const b = await poseidonHash(['hello', 'wrld']);
+    expect(a).not.toBe(b);
+  });
+
+  it('handles bigint inputs', async () => {
+    const a = await poseidonHash([BigInt('0x1234')]);
+    expect(a).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('handles numeric inputs', async () => {
+    const result = await poseidonHash([1, 2, 3]);
+    expect(result).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+});
+
+describe('sha256', () => {
+  it('returns a hex string', async () => {
+    const result = await sha256('test');
+    expect(result).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('is deterministic', async () => {
+    const a = await sha256('test');
+    const b = await sha256('test');
+    expect(a).toBe(b);
+  });
+});
+
+describe('generateRandomField', () => {
+  it('returns a 0x-prefixed 64-char hex', async () => {
+    const result = await generateRandomField();
+    expect(result).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('generates different values each call', async () => {
+    const a = await generateRandomField();
+    const b = await generateRandomField();
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('generateNullifier', () => {
+  it('returns a valid hex string', async () => {
+    const n = await generateNullifier('secret', 0);
+    expect(n).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('changes with different index', async () => {
+    const n0 = await generateNullifier('secret', 0);
+    const n1 = await generateNullifier('secret', 1);
+    expect(n0).not.toBe(n1);
+  });
+});
+
+describe('generateCommitment', () => {
+  it('returns a valid hex commitment', async () => {
+    const c = await generateCommitment('secret', 'GA...', '100', 'USDC');
+    expect(c).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+});
+
+describe('poseidonHash2', () => {
+  it('hashes two field elements', async () => {
+    const h = await poseidonHash2('0x' + 'a'.repeat(64), '0x' + 'b'.repeat(64));
+    expect(h).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+});
+
+describe('Merkle tree', () => {
+  it('computes root for single leaf', async () => {
+    const root = await computeMerkleRoot(['0x' + 'a'.repeat(64)]);
+    expect(root).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('computes root for multiple leaves', async () => {
+    const leaves = [
+      '0x' + 'a'.repeat(64),
+      '0x' + 'b'.repeat(64),
+      '0x' + 'c'.repeat(64),
+      '0x' + 'd'.repeat(64),
+    ];
+    const root = await computeMerkleRoot(leaves);
+    expect(root).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('generates merkle path', async () => {
+    const leaves = [
+      '0x' + 'a'.repeat(64),
+      '0x' + 'b'.repeat(64),
+      '0x' + 'c'.repeat(64),
+      '0x' + 'd'.repeat(64),
+    ];
+    const path = await generateMerklePath(leaves, 0);
+    expect(path.length).toBeGreaterThan(0);
+    expect(path[0]).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+});
+
+describe('generateViewingKeyPair', () => {
+  it('returns public and private key', async () => {
+    const kp = await generateViewingKeyPair();
+    expect(kp.publicKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(kp.privateKey).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+});
+
+describe('encryptWithPublicKey', () => {
+  it('returns iv:cipher format', async () => {
+    const encrypted = await encryptWithPublicKey('secret-data', 'pubkey123');
+    expect(encrypted).toContain(':');
+    const [iv, cipher] = encrypted.split(':');
+    expect(iv.length).toBe(32);
+    expect(cipher.length).toBe(64);
+  });
+});
