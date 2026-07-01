@@ -6,7 +6,7 @@ import {
 } from '../types';
 import { ProofGenerator } from '../privacy/proof-generator';
 import { ViewingKeyManager } from './viewing-keys';
-import { poseidonHash, sha256 } from '../utils/crypto';
+import { poseidonHash, sha256, generateRandomField } from '../utils/crypto';
 import { StellarClient } from '../stellar/client';
 
 export class SelectiveDisclosure extends EventEmitter {
@@ -33,7 +33,7 @@ export class SelectiveDisclosure extends EventEmitter {
     const requestId = await poseidonHash([
       request.regulatorPublicKey,
       Date.now().toString(),
-      Math.random().toString(),
+      await generateRandomField(),
     ]);
 
     this.disclosureRequests.set(requestId, request);

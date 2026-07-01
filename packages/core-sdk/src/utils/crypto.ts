@@ -1,4 +1,7 @@
 import { bn254 } from '@noble/curves/bn254.js';
+import { x25519 } from '@noble/curves/ed25519.js';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
 import { poseidon, grainGenConstants } from '@noble/curves/abstract/poseidon.js';
 
 const Fr = bn254.fields.Fr;
@@ -119,30 +122,80 @@ export async function generateMerklePath(leaves: string[], index: number): Promi
   return path;
 }
 
-export async function encryptWithPublicKey(data: string, publicKey: string): Promise<string> {
-  const ivBytes = new Uint8Array(16);
-  crypto.getRandomValues(ivBytes);
-  const iv = Array.from(ivBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
-  const key = await sha256(publicKey);
-  const cipher = await sha256(key + data + iv);
-  return iv + ':' + cipher;
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function decryptWithPrivateKey(encrypted: string, privateKey: string): Promise<string> {
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.substring(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+async function aesGcmEncrypt(plaintext: Uint8Array, key: Uint8Array, iv: Uint8Array): Promise<Uint8Array> {
+  const keyCopy = Uint8Array.from(key);
+  const dataCopy = Uint8Array.from(plaintext);
+  const ivCopy = Uint8Array.from(iv);
+  const cryptoKey = await crypto.subtle.importKey('raw', keyCopy, 'AES-GCM', false, ['encrypt']);
+  return new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: ivCopy }, cryptoKey, dataCopy));
+}
+
+async function aesGcmDecrypt(ciphertext: Uint8Array, key: Uint8Array, iv: Uint8Array): Promise<Uint8Array> {
+  const keyCopy = Uint8Array.from(key);
+  const dataCopy = Uint8Array.from(ciphertext);
+  const ivCopy = Uint8Array.from(iv);
+  const cryptoKey = await crypto.subtle.importKey('raw', keyCopy, 'AES-GCM', false, ['decrypt']);
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivCopy }, cryptoKey, dataCopy));
+}
+
+function deriveKey(input: string): Uint8Array {
+  const encoder = new TextEncoder();
+  return nobleSha256(encoder.encode(input));
+}
+
+async function aesEncrypt(plaintext: Uint8Array, keyMaterial: Uint8Array): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const derivedKey = nobleSha256(hkdf(nobleSha256, keyMaterial, salt, new Uint8Array(0), 32));
+  const ciphertext = await aesGcmEncrypt(plaintext, derivedKey, iv);
+  return `${bytesToHex(salt)}:${bytesToHex(iv)}:${bytesToHex(ciphertext)}`;
+}
+
+async function aesDecrypt(encrypted: string, keyMaterial: Uint8Array): Promise<Uint8Array> {
   const parts = encrypted.split(':');
-  if (parts.length !== 2) throw new Error('Decryption failed: invalid format');
-  const iv = parts[0];
-  const cipher = parts[1];
-  const key = await sha256(privateKey);
-  const combined = await sha256(key + iv);
-  if (combined !== cipher) throw new Error('Decryption failed: invalid key or corrupted data');
-  return combined;
+  if (parts.length !== 3) throw new Error('Decryption failed: invalid format');
+  const salt = hexToBytes(parts[0]);
+  const iv = hexToBytes(parts[1]);
+  const ciphertext = hexToBytes(parts[2]);
+  const derivedKey = nobleSha256(hkdf(nobleSha256, keyMaterial, salt, new Uint8Array(0), 32));
+  return aesGcmDecrypt(ciphertext, derivedKey, iv);
+}
+
+export async function encryptWithPublicKey(data: string, keyMaterial: string): Promise<string> {
+  const key = deriveKey(keyMaterial);
+  const encodedData = new TextEncoder().encode(data);
+  return `02:v0:${await aesEncrypt(encodedData, key)}`;
+}
+
+export async function decryptWithPrivateKey(encrypted: string, keyMaterial: string): Promise<string> {
+  const parts = encrypted.split(':');
+  if (parts.length < 2 || parts[0] !== '02') throw new Error('Decryption failed: invalid format');
+  const key = deriveKey(keyMaterial);
+  const inner = parts.slice(2).join(':');
+  const decrypted = await aesDecrypt(inner, key);
+  return new TextDecoder().decode(decrypted);
 }
 
 export async function generateViewingKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
-  const privateKey = await generateRandomField();
-  const publicKey = await sha256(privateKey);
-  return { publicKey, privateKey };
+  const privateKey = x25519.utils.randomSecretKey();
+  const publicKey = x25519.getPublicKey(privateKey);
+  return {
+    privateKey: bytesToHex(privateKey),
+    publicKey: bytesToHex(publicKey),
+  };
 }
 
 export function bn254Fr(): typeof Fr {

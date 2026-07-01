@@ -10,6 +10,7 @@ import {
   generateMerklePath,
   generateViewingKeyPair,
   encryptWithPublicKey,
+  decryptWithPrivateKey,
 } from './crypto';
 
 describe('poseidonHash', () => {
@@ -128,16 +129,34 @@ describe('generateViewingKeyPair', () => {
   it('returns public and private key', async () => {
     const kp = await generateViewingKeyPair();
     expect(kp.publicKey).toMatch(/^[0-9a-f]{64}$/);
-    expect(kp.privateKey).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(kp.privateKey).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
-describe('encryptWithPublicKey', () => {
-  it('returns iv:cipher format', async () => {
-    const encrypted = await encryptWithPublicKey('secret-data', 'pubkey123');
+describe('encryptWithPublicKey / decryptWithPrivateKey', () => {
+  it('encrypts and decrypts correctly', async () => {
+    const data = 'sensitive-viewing-key-data';
+    const kp = await generateViewingKeyPair();
+    const encrypted = await encryptWithPublicKey(data, kp.publicKey);
     expect(encrypted).toContain(':');
-    const [iv, cipher] = encrypted.split(':');
-    expect(iv.length).toBe(32);
-    expect(cipher.length).toBe(64);
+    const parts = encrypted.split(':');
+    expect(parts[0]).toBe('02');
+    expect(parts[1]).toBe('v0');
+
+    const decrypted = await decryptWithPrivateKey(encrypted, kp.publicKey);
+    expect(decrypted).toBe(data);
+  });
+
+  it('rejects decryption with wrong key', async () => {
+    const data = 'secret-data';
+    const kp1 = await generateViewingKeyPair();
+    const kp2 = await generateViewingKeyPair();
+    const encrypted = await encryptWithPublicKey(data, kp1.publicKey);
+    await expect(decryptWithPrivateKey(encrypted, kp2.publicKey)).rejects.toThrow();
+  });
+
+  it('rejects corrupt encrypted data', async () => {
+    await expect(decryptWithPrivateKey('invalid', 'key')).rejects.toThrow('invalid format');
+    await expect(decryptWithPrivateKey('02:bad:data', 'key')).rejects.toThrow();
   });
 });

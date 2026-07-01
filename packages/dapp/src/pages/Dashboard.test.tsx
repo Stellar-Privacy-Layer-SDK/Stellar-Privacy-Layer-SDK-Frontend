@@ -39,7 +39,7 @@ describe('Dashboard', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('Welcome to Stellar Privacy Layer')).toBeDefined();
-    expect(screen.getByText('BN254')).toBeDefined();
+    expect(screen.getAllByText('BN254').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Poseidon Hash')).toBeDefined();
   });
 
@@ -63,7 +63,7 @@ describe('Dashboard', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('Protocol Information')).toBeDefined();
-    expect(screen.getByText('BN254')).toBeDefined();
+    expect(screen.getByText('ZK Curve')).toBeDefined();
     expect(screen.getByText('Stellar Protocol 25')).toBeDefined();
   });
 });

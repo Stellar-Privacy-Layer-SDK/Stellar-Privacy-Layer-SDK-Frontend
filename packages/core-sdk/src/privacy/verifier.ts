@@ -1,7 +1,7 @@
 import { bn254 } from '@noble/curves/bn254.js';
 import { EventEmitter } from 'events';
 import { ZKProof } from '../types';
-import { poseidonHash } from '../utils/crypto';
+import { poseidonHash, generateRandomField } from '../utils/crypto';
 import { StellarClient } from '../stellar/client';
 
 const Fr = bn254.fields.Fr;
@@ -48,7 +48,7 @@ export class ProofVerifier extends EventEmitter {
   async generateVerificationKey(): Promise<string> {
     const keyMaterial = await poseidonHash([
       Date.now().toString(),
-      Math.random().toString(),
+      await generateRandomField(),
     ]);
     return keyMaterial;
   }

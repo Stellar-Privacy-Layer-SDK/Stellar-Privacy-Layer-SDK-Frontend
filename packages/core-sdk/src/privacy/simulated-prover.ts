@@ -10,10 +10,31 @@ import type { ZKProof, ShieldedTransferParams } from '../types';
 
 const Fr = bn254.fields.Fr;
 
+/**
+ * DEV-ONLY prover that simulates Groth16 proof generation and verification.
+ *
+ * WARNING: This prover produces FAKE ZK proofs. The verification equation
+ * (`pi_a[0] + pi_a[1] - pi_c[0] === H(publicInputs)`) is trivially satisfiable
+ * and provides NO cryptographic security guarantees.
+ *
+ * Use `SnarkjsProver` with real circuit artifacts for any production or
+ * security-sensitive environment.
+ */
 export class SimulatedProver implements Prover {
   private initialized = false;
+  private static warned = false;
 
-  async initialize(): Promise<void> { this.initialized = true; }
+  async initialize(): Promise<void> {
+    if (!SimulatedProver.warned && typeof console !== 'undefined') {
+      console.warn(
+        '[SimulatedProver] WARNING: Using simulated (fake) ZK prover. ' +
+        'Generated proofs provide NO security guarantees. ' +
+        'Use SnarkjsProver with real circuit artifacts for production.',
+      );
+      SimulatedProver.warned = true;
+    }
+    this.initialized = true;
+  }
   isReady(): boolean { return this.initialized; }
 
   async generateShieldedProof(

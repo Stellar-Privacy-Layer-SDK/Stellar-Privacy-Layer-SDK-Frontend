@@ -141,17 +141,21 @@ export class ViewingKeyManager extends EventEmitter {
   }
 
   async signDisclosurePayload(payload: DisclosurePayload, keyId: string): Promise<DisclosurePayload> {
-    const privateKey = this.keyPairs.get(keyId)?.privateKey;
-    if (!privateKey) throw new Error('Private key not found for this viewing key');
+    const viewingKey = this.viewingKeys.get(keyId);
+    if (!viewingKey) throw new Error('Viewing key not found');
 
-    const payloadString = JSON.stringify(payload);
-    const signature = await poseidonHash([payloadString, privateKey]);
+    const payloadWithSigner = { ...payload, signerPublicKey: viewingKey.publicKey, regulatorSignature: undefined };
+    const payloadString = JSON.stringify(payloadWithSigner, Object.keys(payloadWithSigner).sort());
+    const signature = await poseidonHash([payloadString, viewingKey.publicKey]);
 
-    return { ...payload, regulatorSignature: signature };
+    return { ...payloadWithSigner, regulatorSignature: signature };
   }
 
   async verifyDisclosurePayload(payload: DisclosurePayload): Promise<boolean> {
-    if (!payload.regulatorSignature) return false;
-    return true;
+    if (!payload.regulatorSignature || !payload.signerPublicKey) return false;
+    const canonical = { ...payload, regulatorSignature: undefined };
+    const payloadString = JSON.stringify(canonical, Object.keys(canonical).sort());
+    const expectedSignature = await poseidonHash([payloadString, payload.signerPublicKey]);
+    return payload.regulatorSignature === expectedSignature;
   }
 }

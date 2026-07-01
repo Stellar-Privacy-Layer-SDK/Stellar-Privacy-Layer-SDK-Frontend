@@ -102,6 +102,7 @@ export interface DisclosurePayload {
   proof: ZKProof;
   scope: string;
   timestamp: number;
+  signerPublicKey?: string;
   regulatorSignature?: string;
 }
 

@@ -106,3 +106,85 @@ fn proof_to_bytes(proof: &ProofGroth16) -> Vec<u8> {
     buf.push_back(0_u8);
     buf
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use soroban_sdk::{BytesN, String, vec, Env, IntoVal};
+
+    #[test]
+    fn test_deposit_and_get_commitment() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, PrivacyVerifier);
+        let client = PrivacyVerifierClient::new(&env, &contract_id);
+
+        let commitment = BytesN::from_array(&env, &[0xaa; 32]);
+        let amount = String::from_slice(&env, "100");
+        let token = String::from_slice(&env, "USDC");
+
+        client.deposit(&commitment, &amount, &token);
+
+        let stored = client.get_commitment(&commitment);
+        assert!(stored.is_some());
+        let (stored_amount, stored_token) = stored.unwrap();
+        assert_eq!(stored_amount, amount);
+        assert_eq!(stored_token, token);
+    }
+
+    #[test]
+    fn test_double_spend_rejection() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, PrivacyVerifier);
+        let client = PrivacyVerifierClient::new(&env, &contract_id);
+
+        let nullifier = BytesN::from_array(&env, &[0xbb; 32]);
+        let proof = String::from_slice(&env, "proof_data");
+        let recipient = String::from_slice(&env, "GAXXXX");
+
+        assert!(!client.is_nullifier_spent(&nullifier));
+
+        client.withdraw(&nullifier, &proof, &recipient);
+
+        assert!(client.is_nullifier_spent(&nullifier));
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            client.withdraw(&nullifier, &proof, &recipient);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_viewing_key_lifecycle() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, PrivacyVerifier);
+        let client = PrivacyVerifierClient::new(&env, &contract_id);
+
+        let regulator = BytesN::from_array(&env, &[0xcc; 32]);
+        let encrypted_key = BytesN::from_array(&env, &[0xdd; 64]);
+
+        client.set_viewing_key(&regulator, &encrypted_key);
+
+        client.revoke_viewing_key(&regulator);
+    }
+
+    #[test]
+    fn test_nullifier_not_spent_by_default() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, PrivacyVerifier);
+        let client = PrivacyVerifierClient::new(&env, &contract_id);
+
+        let nullifier = BytesN::from_array(&env, &[0xee; 32]);
+        assert!(!client.is_nullifier_spent(&nullifier));
+    }
+
+    #[test]
+    fn test_missing_commitment_returns_none() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, PrivacyVerifier);
+        let client = PrivacyVerifierClient::new(&env, &contract_id);
+
+        let commitment = BytesN::from_array(&env, &[0xff; 32]);
+        let stored = client.get_commitment(&commitment);
+        assert!(stored.is_none());
+    }
+}
