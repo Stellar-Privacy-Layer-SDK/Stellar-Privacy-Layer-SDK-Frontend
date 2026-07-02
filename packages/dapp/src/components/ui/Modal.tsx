@@ -41,7 +41,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border/50">
             <h2 className="text-lg font-semibold text-white">{title}</h2>
-            <button onClick={onClose} className="btn-ghost p-1">
+            <button onClick={onClose} className="btn-ghost p-1" aria-label="Close modal">
               <X className="h-5 w-5" />
             </button>
           </div>

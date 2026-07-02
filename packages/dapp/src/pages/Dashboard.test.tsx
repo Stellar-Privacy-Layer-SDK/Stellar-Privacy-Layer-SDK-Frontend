@@ -1,37 +1,49 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Dashboard } from './Dashboard';
 
+const mockUseWallet = vi.fn();
+const mockUseShieldedTransfer = vi.fn();
+const mockUseViewingKeys = vi.fn();
+const mockUseNetwork = vi.fn();
+
 vi.mock('../hooks/useSDK', () => ({
-  useWallet: vi.fn().mockReturnValue({
-    walletInfo: null,
-    isConnecting: false,
-    error: null,
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-  }),
-  useShieldedTransfer: vi.fn().mockReturnValue({
-    transactions: [],
-    isProcessing: false,
-    error: null,
-    deposit: vi.fn(),
-    refreshHistory: vi.fn(),
-  }),
-  useViewingKeys: vi.fn().mockReturnValue({
-    keys: [],
-    createKey: vi.fn(),
-    grantKey: vi.fn(),
-    revokeKey: vi.fn(),
-    refresh: vi.fn(),
-  }),
-  useNetwork: vi.fn().mockReturnValue({
-    network: 'testnet',
-    switchNetwork: vi.fn(),
-  }),
+  useWallet: (...args: unknown[]) => mockUseWallet(...args),
+  useShieldedTransfer: (...args: unknown[]) => mockUseShieldedTransfer(...args),
+  useViewingKeys: (...args: unknown[]) => mockUseViewingKeys(...args),
+  useNetwork: (...args: unknown[]) => mockUseNetwork(...args),
 }));
 
 describe('Dashboard', () => {
+  beforeEach(() => {
+    mockUseWallet.mockReturnValue({
+      walletInfo: null,
+      isConnecting: false,
+      error: null,
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    });
+    mockUseShieldedTransfer.mockReturnValue({
+      transactions: [],
+      isProcessing: false,
+      error: null,
+      deposit: vi.fn(),
+      refreshHistory: vi.fn(),
+    });
+    mockUseViewingKeys.mockReturnValue({
+      keys: [],
+      createKey: vi.fn(),
+      grantKey: vi.fn(),
+      revokeKey: vi.fn(),
+      refresh: vi.fn(),
+    });
+    mockUseNetwork.mockReturnValue({
+      network: 'testnet',
+      switchNetwork: vi.fn(),
+    });
+  });
+
   it('renders welcome message when not connected', () => {
     render(
       <MemoryRouter>
@@ -43,17 +55,23 @@ describe('Dashboard', () => {
     expect(screen.getByText('Poseidon Hash')).toBeDefined();
   });
 
-  it('renders stats when wallet connected', () => {
-    vi.mocked(vi.importActual('../hooks/useSDK')).then(() => {});
-    const useWallet = vi.fn().mockReturnValue({
-      walletInfo: { publicKey: 'GA' + 'X'.repeat(54), isConnected: true },
+  it('renders quick actions when wallet connected', () => {
+    mockUseWallet.mockReturnValue({
+      walletInfo: { publicKey: 'GA' + 'X'.repeat(54), isConnected: true, network: 'testnet' },
+      isConnecting: false,
+      error: null,
+      connect: vi.fn(),
+      disconnect: vi.fn(),
     });
-    vi.doMock('../hooks/useSDK', () => ({
-      useWallet,
-      useShieldedTransfer: vi.fn().mockReturnValue({ transactions: [] }),
-      useViewingKeys: vi.fn().mockReturnValue({ keys: [] }),
-      useNetwork: vi.fn().mockReturnValue({ network: 'testnet', switchNetwork: vi.fn() }),
-    }));
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Quick Actions')).toBeDefined();
+    expect(screen.getByText('New Shielded Transfer')).toBeDefined();
+    expect(screen.getByText('Manage Viewing Keys')).toBeDefined();
+    expect(screen.getByText('Compliance Panel')).toBeDefined();
   });
 
   it('shows protocol information section', () => {

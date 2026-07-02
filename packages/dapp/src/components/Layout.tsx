@@ -11,7 +11,6 @@ import {
 import { useState } from 'react';
 import { WalletConnect } from './WalletConnect';
 import { NetworkSwitcher } from './NetworkSwitcher';
-import { ToastContainer } from './ui/Toast';
 
 const navItems = [
   { to: '/', icon: Shield, label: 'Dashboard', end: true },
@@ -45,6 +44,7 @@ export function Layout() {
             <button
               className="lg:hidden btn-ghost p-1"
               onClick={() => setSidebarOpen(false)}
+              aria-label="Close sidebar"
             >
               <X className="h-5 w-5" />
             </button>
@@ -92,6 +92,7 @@ export function Layout() {
             <button
               className="lg:hidden btn-ghost p-1"
               onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -107,7 +108,6 @@ export function Layout() {
         </main>
       </div>
 
-      <ToastContainer />
     </div>
   );
 }

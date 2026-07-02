@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -11,12 +11,10 @@ interface ToastMessage {
   duration?: number;
 }
 
-let addToastFn: ((toast: Omit<ToastMessage, 'id'>) => void) | null = null;
+let globalAddToast: ((toast: Omit<ToastMessage, 'id'>) => void) | null = null;
 
 export function toast(type: ToastType, title: string, message?: string, duration?: number) {
-  if (addToastFn) {
-    addToastFn({ type, title, message, duration });
-  }
+  globalAddToast?.({ type, title, message, duration });
 }
 
 const icons = {
@@ -61,14 +59,28 @@ function ToastItem({ t, onClose }: { t: ToastMessage; onClose: (id: string) => v
         <p className="text-sm font-medium text-gray-100">{t.title}</p>
         {t.message && <p className="text-xs text-gray-400 mt-0.5">{t.message}</p>}
       </div>
-      <button onClick={() => onClose(t.id)} className="text-gray-500 hover:text-gray-300 flex-shrink-0">
+      <button
+        onClick={() => onClose(t.id)}
+        className="text-gray-500 hover:text-gray-300 flex-shrink-0"
+        aria-label="Dismiss toast"
+      >
         <X className="h-4 w-4" />
       </button>
     </div>
   );
 }
 
-export function ToastContainer() {
+interface ToastContextValue {
+  addToast: (t: Omit<ToastMessage, 'id'>) => void;
+}
+
+const ToastContext = createContext<ToastContextValue | null>(null);
+
+export function useToast(): ((t: Omit<ToastMessage, 'id'>) => void) | undefined {
+  return useContext(ToastContext)?.addToast;
+}
+
+export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = useCallback((t: Omit<ToastMessage, 'id'>) => {
@@ -81,15 +93,18 @@ export function ToastContainer() {
   }, []);
 
   useEffect(() => {
-    addToastFn = addToast;
-    return () => { addToastFn = null; };
+    globalAddToast = addToast;
+    return () => { globalAddToast = null; };
   }, [addToast]);
 
   return (
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2">
-      {toasts.map((t) => (
-        <ToastItem key={t.id} t={t} onClose={removeToast} />
-      ))}
-    </div>
+    <ToastContext.Provider value={{ addToast }}>
+      {children}
+      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2">
+        {toasts.map((t) => (
+          <ToastItem key={t.id} t={t} onClose={removeToast} />
+        ))}
+      </div>
+    </ToastContext.Provider>
   );
 }

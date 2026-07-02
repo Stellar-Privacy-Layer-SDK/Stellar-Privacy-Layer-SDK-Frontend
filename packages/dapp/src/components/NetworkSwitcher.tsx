@@ -21,6 +21,7 @@ export function NetworkSwitcher() {
       <button
         onClick={() => setOpen(!open)}
         className="btn-ghost text-xs gap-1.5"
+        aria-label={`Current network: ${current.label}. Click to switch.`}
       >
         <Globe className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">{current.label}</span>

@@ -156,6 +156,7 @@ export function ViewingKeys() {
                     onClick={() => handleRevoke(key.id)}
                     className="btn-ghost p-1.5 text-red-400 hover:text-red-300"
                     title="Revoke key"
+                    aria-label={`Revoke key: ${key.label}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
