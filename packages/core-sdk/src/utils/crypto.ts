@@ -190,13 +190,21 @@ async function aesDecrypt(encrypted: string, keyMaterial: Uint8Array): Promise<U
   return aesGcmDecrypt(ciphertext, derivedKey, iv);
 }
 
-export async function encryptWithPublicKey(data: string, keyMaterial: string): Promise<string> {
+/**
+ * Encrypts a string with AES-256-GCM using a symmetric key derived from
+ * `keyMaterial` (via HKDF-SHA256). This is SYMMETRIC encryption — both
+ * parties must share the same key material. The previous names
+ * (`encryptWithPublicKey` / `decryptWithPrivateKey`) implied asymmetric
+ * cryptography, which this is not.
+ */
+export async function encryptWithKey(data: string, keyMaterial: string): Promise<string> {
   const key = deriveKey(keyMaterial);
   const encodedData = new TextEncoder().encode(data);
   return `02:v0:${await aesEncrypt(encodedData, key)}`;
 }
 
-export async function decryptWithPrivateKey(encrypted: string, keyMaterial: string): Promise<string> {
+/** Decrypts a value produced by {@link encryptWithKey} with the same key material. */
+export async function decryptWithKey(encrypted: string, keyMaterial: string): Promise<string> {
   const parts = encrypted.split(':');
   if (parts.length < 2 || parts[0] !== '02') throw new Error('Decryption failed: invalid format');
   const key = deriveKey(keyMaterial);

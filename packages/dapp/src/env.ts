@@ -16,6 +16,11 @@ interface DappEnv {
    * dApp uses the dev-only SimulatedProver.
    */
   readonly VITE_ZK_ARTIFACTS_URL?: string;
+  /**
+   * Token contract addresses for the dApp, as a JSON map of symbol to
+   * contract ID, e.g. `{"USDC":"CA..."}`. `native` (XLM) is always enabled.
+   */
+  readonly VITE_TOKEN_CONTRACTS?: string;
 }
 
 function readEnv(): DappEnv {
@@ -61,4 +66,48 @@ export function isDebugEnabled(): boolean {
 export function getZkArtifactsBaseUrl(): string | null {
   const url = readEnv().VITE_ZK_ARTIFACTS_URL;
   return url && url.trim() ? url.trim() : null;
+}
+
+export interface TokenOption {
+  symbol: string;
+  name: string;
+  /** Asset contract ID, or `native` for XLM. */
+  contract: string;
+  decimals: number;
+}
+
+const NATIVE_LUMENS: TokenOption = {
+  symbol: 'XLM',
+  name: 'Stellar Lumens',
+  contract: 'native',
+  decimals: 7,
+};
+
+/**
+ * Tokens the dApp can transact with, driven by `VITE_TOKEN_CONTRACTS`.
+ *
+ * Placeholder or malformed addresses (e.g. the old hardcoded `'...'`) are
+ * never surfaced — only `native` or valid-looking `C...` contract IDs make it
+ * into the list, so a deposit can never be sent to an invalid address.
+ */
+export function getSupportedTokens(): TokenOption[] {
+  const tokens: TokenOption[] = [NATIVE_LUMENS];
+  const raw = readEnv().VITE_TOKEN_CONTRACTS;
+  if (!raw || !raw.trim()) return tokens;
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, string | undefined>;
+    const seen = new Set(tokens.map((t) => t.symbol));
+    for (const [symbol, contract] of Object.entries(parsed)) {
+      const address = contract?.trim() ?? '';
+      if (seen.has(symbol)) continue; // never duplicate a token (e.g. XLM)
+      if (address === 'native' || (address.startsWith('C') && address.length === 56)) {
+        tokens.push({ symbol, name: symbol, contract: address, decimals: 7 });
+        seen.add(symbol);
+      }
+    }
+  } catch {
+    // Malformed VITE_TOKEN_CONTRACTS — fall back to XLM only.
+  }
+  return tokens;
 }

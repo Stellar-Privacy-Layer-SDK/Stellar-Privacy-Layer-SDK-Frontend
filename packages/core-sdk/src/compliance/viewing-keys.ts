@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { ViewingKey, ComplianceDisclosureRequest, DisclosurePayload } from '../types';
-import { generateViewingKeyPair, encryptWithPublicKey, poseidonHash } from '../utils/crypto';
+import { generateViewingKeyPair, encryptWithKey, poseidonHash } from '../utils/crypto';
 import { createLocalStorageProvider } from '../utils/storage';
 import type { StorageProvider } from '../types';
 
@@ -48,7 +48,7 @@ export class ViewingKeyManager extends EventEmitter {
       id: keyId,
       label,
       publicKey: keyPair.publicKey,
-      encryptedPrivateKey: await encryptWithPublicKey(keyPair.privateKey, keyPair.publicKey),
+      encryptedPrivateKey: await encryptWithKey(keyPair.privateKey, keyPair.publicKey),
       createdAt: Date.now(),
       expiresAt,
       grantedBy: 'self',
@@ -72,7 +72,7 @@ export class ViewingKeyManager extends EventEmitter {
     const keyPair = await generateViewingKeyPair();
     const keyId = await poseidonHash([keyPair.publicKey, Date.now().toString()]);
 
-    const encryptedKey = await encryptWithPublicKey(keyPair.privateKey, recipientPublicKey);
+    const encryptedKey = await encryptWithKey(keyPair.privateKey, recipientPublicKey);
 
     const viewingKey: ViewingKey = {
       id: keyId,

@@ -5,21 +5,20 @@ import { useNavigate } from 'react-router';
 import { toast } from '../components/ui/Toast';
 import { CopyButton } from '../components/ui/CopyButton';
 import { isValidPublicKey, isValidAmount } from '@stellar-privacy/sdk';
-
-const SUPPORTED_TOKENS = [
-  { symbol: 'USDC', name: 'USD Coin', contract: '...', decimals: 7 },
-  { symbol: 'XLM', name: 'Stellar Lumens', contract: 'native', decimals: 7 },
-];
+import { getSupportedTokens, type TokenOption } from '../env';
 
 export function ShieldedTransfer() {
   const { walletInfo } = useWallet();
   const { isProcessing, error, deposit } = useShieldedTransfer();
   const navigate = useNavigate();
 
+  // Tokens come from env config (see VITE_TOKEN_CONTRACTS); never hardcode
+  // contract addresses in the UI (issue #6).
+  const [tokens] = useState<TokenOption[]>(() => getSupportedTokens());
   const [step, setStep] = useState<'form' | 'processing' | 'complete'>('form');
   const [amount, setAmount] = useState('');
   const [recipient, setRecipient] = useState('');
-  const [token, setToken] = useState(SUPPORTED_TOKENS[0].symbol);
+  const [token, setToken] = useState(tokens[0].symbol);
   const [memo, setMemo] = useState('');
   const [result, setResult] = useState<{ txHash: string; commitmentHash: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -47,7 +46,8 @@ export function ShieldedTransfer() {
 
     setStep('processing');
     try {
-      const res = await deposit(amount, token, recipient, memo || undefined);
+      const selected = tokens.find((t) => t.symbol === token) ?? tokens[0];
+      const res = await deposit(amount, selected.contract, recipient, memo || undefined);
       setResult({ txHash: res.txHash, commitmentHash: res.commitmentHash });
       setStep('complete');
       toast('success', 'Shielded transfer submitted', 'Your transaction has been sent to the network.');
@@ -138,7 +138,7 @@ export function ShieldedTransfer() {
           <div>
             <label className="label">Token</label>
             <div className="flex gap-2">
-              {SUPPORTED_TOKENS.map((t) => (
+              {tokens.map((t) => (
                 <button
                   key={t.symbol}
                   type="button"

@@ -6,7 +6,7 @@ import {
   Commitment,
   ShieldedTransaction,
 } from '../types';
-import { generateRandomField, poseidonHash } from '../utils/crypto';
+import { generateRandomField, poseidonHash, generateMerklePath } from '../utils/crypto';
 import { createLocalStorageProvider } from '../utils/storage';
 import { isValidPublicKey, isValidAmount } from '../utils/encoding';
 import type { StorageProvider } from '../types';
@@ -188,7 +188,16 @@ export class ShieldedTransfer {
     }
 
     const nullifier = await poseidonHash([commitmentHash, recipient]);
-    const merkleProof: string[] = [];
+
+    // Build a real Merkle membership proof for this commitment from the set of
+    // known commitments (previously this was always an empty array, making the
+    // withdrawal proof unsound — issue #1).
+    const leaves = Array.from(this.commitments.keys());
+    const leafIndex = leaves.indexOf(commitmentHash);
+    if (leafIndex === -1) {
+      throw new Error('Commitment not found in Merkle tree');
+    }
+    const merkleProof = await generateMerklePath(leaves, leafIndex);
 
     const withdrawalProof = await this.proofGenerator.generateWithdrawalProof(
       commitmentHash,
@@ -198,7 +207,11 @@ export class ShieldedTransfer {
       amount,
     );
 
-    const publicInputs = [commitmentHash, nullifier, recipient, amount];
+    // Must mirror the inputs the prover folded into the proof
+    // (SimulatedProver hashes [commitment, nullifier, ...merkleProof, recipient, amount]).
+    // Note: the merkle root implied by this path is not independently checked
+    // against a canonical on-chain root — a protocol concern for production.
+    const publicInputs = [commitmentHash, nullifier, ...merkleProof, recipient, amount];
     const isValid = await this.proofGenerator.verifyProof(withdrawalProof, publicInputs);
     if (!isValid) {
       throw new Error('Withdrawal proof verification failed');

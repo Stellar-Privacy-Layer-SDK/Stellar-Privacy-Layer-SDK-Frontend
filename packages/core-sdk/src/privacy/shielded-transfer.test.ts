@@ -163,6 +163,32 @@ describe('ShieldedTransfer', () => {
         transfer.withdraw(deposit.commitmentHash, 'bad-key', '15'),
       ).rejects.toThrow('Invalid recipient');
     });
+
+    it('passes a real Merkle proof to the contract on withdraw', async () => {
+      // Two commitments so the Merkle path is non-trivial.
+      const a = await transfer.deposit({
+        amount: '111', token: 'USDC', recipient: KEY(),
+      });
+      await transfer.deposit({
+        amount: '222', token: 'USDC', recipient: KEY(),
+      });
+
+      let capturedProof: string[] = [];
+      const originalWithdraw = client.withdrawCommitment.bind(client);
+      client.withdrawCommitment = async (_nullifier, merkleProof) => {
+        capturedProof = merkleProof;
+        return 'mock_hash';
+      };
+      try {
+        const result = await transfer.withdraw(a.commitmentHash, KEY(), '111');
+        expect(result.txHash).toBe('mock_hash');
+      } finally {
+        client.withdrawCommitment = originalWithdraw;
+      }
+
+      expect(capturedProof.length).toBeGreaterThan(0);
+      expect(capturedProof[0]).toMatch(/^0x[0-9a-f]{64}$/);
+    });
   });
 
   it('returns the transaction status from the client', async () => {
