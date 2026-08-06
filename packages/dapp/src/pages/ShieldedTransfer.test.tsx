@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { StrKey } from '@stellar/stellar-sdk';
 import { Buffer } from 'buffer';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { ShieldedTransfer } from './ShieldedTransfer';
+
+const usdcContract = 'C' + 'A'.repeat(55);
 
 const mockUseWallet = vi.fn();
 const mockUseShieldedTransfer = vi.fn();
@@ -19,6 +21,7 @@ const depositMock = vi.fn();
 
 describe('ShieldedTransfer', () => {
   beforeEach(() => {
+    vi.stubEnv('VITE_TOKEN_CONTRACTS', JSON.stringify({ USDC: usdcContract }));
     depositMock.mockReset();
     depositMock.mockResolvedValue({
       txHash: 'mock_hash',
@@ -38,6 +41,10 @@ describe('ShieldedTransfer', () => {
       deposit: depositMock,
       refreshHistory: vi.fn(),
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   function renderPage() {
@@ -89,6 +96,7 @@ describe('ShieldedTransfer', () => {
 
   it('truncates long memos to 28 characters', async () => {
     renderPage();
+    fireEvent.click(screen.getByText('USDC'));
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '100' } });
     fireEvent.change(screen.getByPlaceholderText(/GXXXXXXXXXXXXXXXXXXXX/), {
       target: { value: validKey() },
@@ -100,11 +108,12 @@ describe('ShieldedTransfer', () => {
     await waitFor(() => {
       expect(screen.getByText('Transfer Submitted')).toBeDefined();
     });
-    expect(depositMock).toHaveBeenCalledWith('100', 'USDC', validKey(), 'x'.repeat(28));
+    expect(depositMock).toHaveBeenCalledWith('100', usdcContract, validKey(), 'x'.repeat(28));
   });
 
   it('submits a deposit and shows the completion screen', async () => {
     renderPage();
+    fireEvent.click(screen.getByText('USDC'));
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '100' } });
     fireEvent.change(screen.getByPlaceholderText(/GXXXXXXXXXXXXXXXXXXXX/), {
       target: { value: validKey() },
@@ -114,7 +123,7 @@ describe('ShieldedTransfer', () => {
     await waitFor(() => {
       expect(screen.getByText('Transfer Submitted')).toBeDefined();
     });
-    expect(depositMock).toHaveBeenCalledWith('100', 'USDC', validKey(), undefined);
+    expect(depositMock).toHaveBeenCalledWith('100', usdcContract, validKey(), undefined);
     expect(screen.getByText('mock_hash')).toBeDefined();
 
     fireEvent.click(screen.getByText('New Transfer'));

@@ -9,8 +9,8 @@ import {
   computeMerkleRoot,
   generateMerklePath,
   generateViewingKeyPair,
-  encryptWithPublicKey,
-  decryptWithPrivateKey,
+  encryptWithKey,
+  decryptWithKey,
 } from './crypto';
 
 describe('poseidonHash', () => {
@@ -178,17 +178,17 @@ describe('generateViewingKeyPair', () => {
   });
 });
 
-describe('encryptWithPublicKey / decryptWithPrivateKey', () => {
+describe('encryptWithKey / decryptWithKey (symmetric AES-GCM)', () => {
   it('encrypts and decrypts correctly', async () => {
     const data = 'sensitive-viewing-key-data';
     const kp = await generateViewingKeyPair();
-    const encrypted = await encryptWithPublicKey(data, kp.publicKey);
+    const encrypted = await encryptWithKey(data, kp.publicKey);
     expect(encrypted).toContain(':');
     const parts = encrypted.split(':');
     expect(parts[0]).toBe('02');
     expect(parts[1]).toBe('v0');
 
-    const decrypted = await decryptWithPrivateKey(encrypted, kp.publicKey);
+    const decrypted = await decryptWithKey(encrypted, kp.publicKey);
     expect(decrypted).toBe(data);
   });
 
@@ -196,12 +196,12 @@ describe('encryptWithPublicKey / decryptWithPrivateKey', () => {
     const data = 'secret-data';
     const kp1 = await generateViewingKeyPair();
     const kp2 = await generateViewingKeyPair();
-    const encrypted = await encryptWithPublicKey(data, kp1.publicKey);
-    await expect(decryptWithPrivateKey(encrypted, kp2.publicKey)).rejects.toThrow();
+    const encrypted = await encryptWithKey(data, kp1.publicKey);
+    await expect(decryptWithKey(encrypted, kp2.publicKey)).rejects.toThrow();
   });
 
   it('rejects corrupt encrypted data', async () => {
-    await expect(decryptWithPrivateKey('invalid', 'key')).rejects.toThrow('invalid format');
-    await expect(decryptWithPrivateKey('02:bad:data', 'key')).rejects.toThrow();
+    await expect(decryptWithKey('invalid', 'key')).rejects.toThrow('invalid format');
+    await expect(decryptWithKey('02:bad:data', 'key')).rejects.toThrow();
   });
 });

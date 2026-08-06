@@ -1,11 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { StrKey } from '@stellar/stellar-sdk';
 import { StellarClient } from './client';
 import { Network } from '../types';
 
-const validContractId = (() => {
-  const { StrKey } = require('@stellar/stellar-sdk');
-  return StrKey.encodeContract(Buffer.alloc(32, 0x01));
-})();
+const validContractId = StrKey.encodeContract(Buffer.alloc(32, 0x01));
 
 const { serverBehaviors } = vi.hoisted(() => ({
   serverBehaviors: {} as Record<string, (...args: unknown[]) => unknown>,

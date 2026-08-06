@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { StrKey } from '@stellar/stellar-sdk';
 import { SelectiveDisclosure } from './selective-disclosure';
 import { ViewingKeyManager } from './viewing-keys';
 import { ProofGenerator } from '../privacy/proof-generator';
@@ -7,10 +8,7 @@ import { createMemoryStorageProvider } from '../utils/storage';
 import type { ShieldedTransaction, ComplianceDisclosureRequest } from '../types';
 import { Network } from '../types';
 
-const validContractId = (() => {
-  const { StrKey } = require('@stellar/stellar-sdk');
-  return StrKey.encodeContract(Buffer.alloc(32, 0x01));
-})();
+const validContractId = StrKey.encodeContract(Buffer.alloc(32, 0x01));
 
 vi.mock('@stellar/stellar-sdk', async () => {
   const actual = await vi.importActual('@stellar/stellar-sdk');
