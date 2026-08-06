@@ -14,7 +14,7 @@ declare module 'snarkjs' {
       zkey: string | Uint8Array,
     ): Promise<{ proof: Groth16Proof; publicSignals: string[] }>;
     verify(
-      vkey: string | Uint8Array,
+      vkey: string | Uint8Array | Record<string, unknown>,
       publicSignals: string[],
       proof: Groth16Proof,
     ): Promise<boolean>;

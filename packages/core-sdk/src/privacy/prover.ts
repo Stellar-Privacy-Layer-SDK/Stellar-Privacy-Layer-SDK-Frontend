@@ -3,7 +3,8 @@ import type { ZKProof, ShieldedTransferParams } from '../types';
 export interface ProverArtifacts {
   wasm: Uint8Array | string;
   zkey: Uint8Array | string;
-  vkey: Uint8Array | string;
+  /** Verification key: URL to a vkey JSON, raw parsed JSON object, or binary. */
+  vkey: Uint8Array | string | Record<string, unknown>;
 }
 
 export interface Prover {

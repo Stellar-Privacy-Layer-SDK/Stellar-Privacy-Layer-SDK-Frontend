@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { parseNetwork, getNetworkConfig, isDebugEnabled } from './env';
+import {
+  parseNetwork,
+  getNetworkConfig,
+  isDebugEnabled,
+  getZkArtifactsBaseUrl,
+} from './env';
 import { Network } from '@stellar-privacy/sdk';
 
 describe('parseNetwork', () => {
@@ -54,5 +59,25 @@ describe('isDebugEnabled', () => {
     expect(isDebugEnabled()).toBe(true);
     vi.stubEnv('VITE_DEBUG', 'false');
     expect(isDebugEnabled()).toBe(false);
+  });
+});
+
+describe('getZkArtifactsBaseUrl', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('returns the configured artifacts URL', () => {
+    vi.stubEnv('VITE_ZK_ARTIFACTS_URL', 'https://cdn.example.com/artifacts/');
+    expect(getZkArtifactsBaseUrl()).toBe('https://cdn.example.com/artifacts/');
+  });
+
+  it('returns null when unset or blank', () => {
+    vi.stubEnv('VITE_ZK_ARTIFACTS_URL', '');
+    expect(getZkArtifactsBaseUrl()).toBeNull();
+    vi.stubEnv('VITE_ZK_ARTIFACTS_URL', '   ');
+    expect(getZkArtifactsBaseUrl()).toBeNull();
+    vi.stubEnv('VITE_ZK_ARTIFACTS_URL', undefined as unknown as string);
+    expect(getZkArtifactsBaseUrl()).toBeNull();
   });
 });

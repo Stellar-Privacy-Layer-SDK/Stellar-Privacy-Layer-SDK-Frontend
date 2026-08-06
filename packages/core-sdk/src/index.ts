@@ -6,6 +6,7 @@ import { ProofVerifier } from './privacy/verifier';
 import { ViewingKeyManager } from './compliance/viewing-keys';
 import { SelectiveDisclosure } from './compliance/selective-disclosure';
 import { setLogLevel } from './utils/logger';
+import type { Prover } from './privacy/prover';
 import type { NetworkConfig, StorageProvider, LogLevel } from './types';
 
 export { StellarClient } from './stellar/client';
@@ -23,7 +24,15 @@ export { ViewingKeyManager } from './compliance/viewing-keys';
 export { SelectiveDisclosure } from './compliance/selective-disclosure';
 export type { Prover, ProverArtifacts } from './privacy/prover';
 export { SimulatedProver } from './privacy/simulated-prover';
-export { SnarkjsProver } from './privacy/snarkjs-prover';
+export { SnarkjsProver, toFieldHex } from './privacy/snarkjs-prover';
+export {
+  resolveArtifacts,
+  resolveArtifactUrls,
+  isArtifactUrl,
+  fetchArtifact,
+  fetchVkeyJson,
+  type CircuitArtifactUrls,
+} from './privacy/artifacts';
 export * from './types';
 export * from './utils/crypto';
 export * from './utils/encoding';
@@ -37,6 +46,12 @@ export interface PrivacySDKOptions {
   storageProvider?: StorageProvider;
   /** Minimum log level for the built-in structured logger. */
   logLevel?: LogLevel;
+  /**
+   * ZK prover used for proof generation. Defaults to the dev-only
+   * `SimulatedProver`; pass a `SnarkjsProver` (with real circuit artifacts)
+   * for production-grade proofs.
+   */
+  prover?: Prover;
 }
 
 /**
@@ -53,13 +68,13 @@ export class PrivacySDK {
   public selectiveDisclosure: SelectiveDisclosure;
 
   constructor(options: PrivacySDKOptions = {}) {
-    const { network, storageProvider, logLevel } = options;
+    const { network, storageProvider, logLevel, prover } = options;
 
     if (logLevel) setLogLevel(logLevel);
 
     this.client = new StellarClient({ network, storageProvider });
     this.wallet = new WalletManager({ network, storageProvider });
-    this.proofGenerator = new ProofGenerator();
+    this.proofGenerator = new ProofGenerator(prover);
     this.shieldedTransfer = new ShieldedTransfer(
       this.client,
       storageProvider,

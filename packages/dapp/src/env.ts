@@ -10,6 +10,12 @@ interface DappEnv {
   readonly VITE_CONTRACT_ID?: string;
   readonly VITE_HORIZON_URL?: string;
   readonly VITE_DEBUG?: string;
+  /**
+   * Base URL of hosted Groth16 circuit artifacts (shielded_transfer.wasm,
+   * shielded_transfer_final.zkey, verification_key.json). When unset the
+   * dApp uses the dev-only SimulatedProver.
+   */
+  readonly VITE_ZK_ARTIFACTS_URL?: string;
 }
 
 function readEnv(): DappEnv {
@@ -46,4 +52,13 @@ export function getNetworkConfig(): NetworkConfig {
 
 export function isDebugEnabled(): boolean {
   return readEnv().VITE_DEBUG === 'true';
+}
+
+/**
+ * Base URL for real Groth16 circuit artifacts, or `null` when not configured
+ * (in which case the dApp falls back to the dev-only simulated prover).
+ */
+export function getZkArtifactsBaseUrl(): string | null {
+  const url = readEnv().VITE_ZK_ARTIFACTS_URL;
+  return url && url.trim() ? url.trim() : null;
 }

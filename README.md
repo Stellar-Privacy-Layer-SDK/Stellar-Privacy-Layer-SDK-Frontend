@@ -10,7 +10,7 @@ A developer-friendly SDK and reference dApp for **confidential asset transfers o
 
 - **Shielded Transfers** — Deposit and withdraw assets privately using zero-knowledge proofs
 - **Real Poseidon Hashing** — BN254 field Poseidon hash via `@noble/curves` (not a SHA-256 placeholder)
-- **Groth16 Proofs** — Simulated prover with Fiat–Shamir verification for development; real `snarkjs` integration available for production circuit artifacts
+- **Groth16 Proofs** — Simulated prover with Fiat–Shamir verification for development; real `snarkjs` prover with hosted-circuit artifact loading for production (see [Production ZK Prover](#production-zk-prover))
 - **Soroban Verifier Contract** — Rust reference implementation using Protocol 25 built-in ZK ops (BN254 pairing precompile)
 - **Selective Disclosure** — Compliance-friendly viewing keys with scoped access (amount-only, recipient-only, full)
 - **Freighter Wallet** — Full integration with the Freighter API for Stellar wallet connectivity
@@ -32,6 +32,8 @@ packages/
       e2e/        — Full end-to-end SDK flow test
   dapp/           — React reference dApp (Vite + Tailwind, 71 tests / 16 suites)
   contract/       — Soroban verifier contract (Rust, 8 tests)
+circuits/           — circom 2 circuit for shielded transfers (commitment/nullifier)
+scripts/            — build-circuits.sh (artifact generation), deploy.sh
 ```
 
 ---
@@ -71,6 +73,7 @@ cp .env.example .env
 | `VITE_SOROBAN_RPC_URL`  | no       | network default | Custom Soroban RPC endpoint                       |
 | `VITE_CONTRACT_ID`      | no       | —         | Deployed privacy contract ID (`C...`)                   |
 | `VITE_HORIZON_URL`      | no       | network default | Custom Horizon endpoint                            |
+| `VITE_ZK_ARTIFACTS_URL` | no       | —         | Base URL of real Groth16 artifacts (enables `SnarkjsProver`) |
 | `VITE_DEBUG`            | no       | `false`   | `true` enables verbose SDK logging                       |
 
 > **Security:** never commit a real `.env`. `.env*` files are git-ignored; only `.env.example` (which contains no secrets) is tracked. All variables are read via `src/env.ts` with validated fallbacks.
@@ -171,6 +174,58 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 
 All checks must pass before merge. Locally, `npm run verify` replicates the full gate.
 
+Additionally, `.github/workflows/deploy.yml` deploys the dApp to **Vercel** on every push to `main`. It is skipped (not failed) until the `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` secrets are configured — see [Deployment](#deployment).
+
+---
+
+## Production ZK Prover
+
+Out of the box the SDK uses the **simulated prover** (dev-only, no security). To generate **real Groth16 proofs**:
+
+1. **Build the circuit artifacts** (requires `circom` + `snarkjs`):
+
+   ```bash
+   ./scripts/build-circuits.sh
+   ```
+
+   This compiles [`circuits/shielded_transfer.circom`](circuits/shielded_transfer.circom) and produces `shielded_transfer.wasm`, `shielded_transfer_final.zkey`, and `verification_key.json` in `./artifacts`.
+
+   > ⚠️ The bundled ceremony uses a deterministic dev beacon. For mainnet you MUST use a public trusted-setup ceremony.
+
+2. **Host the artifacts** at a stable URL (GitHub Release, CDN, etc.).
+3. **Point the dApp at them** — set `VITE_ZK_ARTIFACTS_URL=<base-url>` in your build env. The dApp then constructs a `SnarkjsProver` that fetches the artifacts and produces real proofs, with the simulated prover as automatic fallback when the var is unset.
+
+Programmatic usage:
+
+```ts
+import { PrivacySDK, SnarkjsProver, resolveArtifactUrls } from '@stellar-privacy/sdk';
+
+const sdk = new PrivacySDK({
+  network: myNetworkConfig,
+  prover: new SnarkjsProver(resolveArtifactUrls('https://cdn.example.com/artifacts')),
+});
+await sdk.initialize();
+```
+
+> **Note:** `SnarkjsProver` returns the circuit's public signals verbatim (snarkjs emits **decimal** field strings), while `SimulatedProver` returns hex strings. Any contract/verifier integration must normalize formats — see the public-input layout documented in `circuits/shielded_transfer.circom`.
+
+---
+
+## Deployment
+
+### Option A — Vercel (recommended)
+
+1. Push this repo to GitHub and create a project at [vercel.com](https://vercel.com) (root directory: `packages/dapp`).
+2. In **Vercel → Project → Settings → Environment Variables**, add `VITE_STELLAR_NETWORK`, `VITE_CONTRACT_ID`, and `VITE_ZK_ARTIFACTS_URL` as needed.
+3. Generate a token: Vercel → Account → Settings → Tokens → Create. Then add GitHub secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` (from `vercel projects ls` / `vercel link`).
+4. Push to `main` — `.github/workflows/deploy.yml` deploys automatically.
+
+### Option B — Docker
+
+```bash
+docker compose up -d --build        # or: npm run docker:up
+```
+
 ---
 
 ## Security Notes
@@ -179,7 +234,7 @@ All checks must pass before merge. Locally, `npm run verify` replicates the full
 - Zero known npm vulnerabilities (`npm audit` is clean and enforced in CI)
 - Contracts validate inputs (checksum-valid Stellar keys, amount ranges, memo truncation)
 - Production security headers + immutable asset caching baked into the nginx config
-- ⚠️ The **simulated prover** is for development/demo only. For production-grade privacy, wire up the `SnarkjsProver` with real Groth16 circuit artifacts (`.wasm` + `.zkey`) and a deployed verifier contract.
+- ⚠️ The **simulated prover** is for development/demo only. For production-grade privacy, generate real Groth16 artifacts with `scripts/build-circuits.sh` (or a public ceremony), host them, set `VITE_ZK_ARTIFACTS_URL`, and deploy a verifier contract — see [Production ZK Prover](#production-zk-prover).
 
 ---
 

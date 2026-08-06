@@ -6,19 +6,32 @@ import {
   ViewingKey,
   Network,
   createLocalStorageProvider,
+  SnarkjsProver,
+  resolveArtifactUrls,
 } from '@stellar-privacy/sdk';
-import { getNetworkConfig } from '../env';
+import { getNetworkConfig, getZkArtifactsBaseUrl } from '../env';
 
 const NETWORK_STORAGE_KEY = 'stellar-privacy:network';
 
 let sdkInstance: PrivacySDK | null = null;
 let initPromise: Promise<void> | null = null;
 
+/**
+ * Uses the real Groth16 prover when `VITE_ZK_ARTIFACTS_URL` is configured;
+ * otherwise falls back to the dev-only simulated prover (default).
+ */
+function createProver(): SnarkjsProver | undefined {
+  const baseUrl = getZkArtifactsBaseUrl();
+  if (!baseUrl) return undefined;
+  return new SnarkjsProver(resolveArtifactUrls(baseUrl));
+}
+
 function getSDK(): PrivacySDK {
   if (!sdkInstance) {
     sdkInstance = new PrivacySDK({
       network: getNetworkConfig(),
       storageProvider: createLocalStorageProvider(),
+      prover: createProver(),
     });
     initPromise = sdkInstance.initialize();
   }

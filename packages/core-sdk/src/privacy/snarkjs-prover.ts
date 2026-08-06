@@ -1,6 +1,8 @@
 import { sha256 } from '../utils/crypto';
+import { resolveArtifacts } from './artifacts';
 import type { Prover, ProverArtifacts } from './prover';
 import type { ZKProof, ShieldedTransferParams } from '../types';
+import { logger } from '../utils/logger';
 
 type SnarkJSGroth16Proof = {
   pi_a: [string, string];
@@ -10,6 +12,19 @@ type SnarkJSGroth16Proof = {
   curve: string;
 }
 
+/**
+ * Production-grade Groth16 prover backed by snarkjs.
+ *
+ * Artifacts can be supplied in three forms:
+ *  - `Uint8Array` binaries (e.g. fetched ahead of time)
+ *  - raw strings (Node file paths)
+ *  - `https://`/`data:` URLs — fetched automatically during `initialize()`
+ *
+ * The reference circuit in `circuits/shielded_transfer.circom` exposes its
+ * final two public signals as `[commitment, nullifier]`; when present,
+ * `generateShieldedProof` extracts them so the on-chain commitment matches the
+ * proven one.
+ */
 export class SnarkjsProver implements Prover {
   private initialized = false;
   private artifacts: ProverArtifacts | null = null;
@@ -30,6 +45,19 @@ export class SnarkjsProver implements Prover {
     } catch {
       // snarkjs not available at runtime
     }
+
+    if (this.artifacts) {
+      try {
+        // Resolves any http(s)/data: references into in-memory artifacts.
+        this.artifacts = await resolveArtifacts(this.artifacts);
+      } catch (error) {
+        logger.error('Failed to load ZK circuit artifacts — prover disabled', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        this.artifacts = null;
+      }
+    }
+
     this.initialized = true;
   }
 
@@ -61,32 +89,23 @@ export class SnarkjsProver implements Prover {
       nullifier: BigInt('0x' + nullifier),
     };
 
-    const wasmData = typeof this.artifacts.wasm === 'string'
-      ? this.artifacts.wasm
-      : this.artifacts.wasm;
-
-    const zkeyData = typeof this.artifacts.zkey === 'string'
-      ? this.artifacts.zkey
-      : this.artifacts.zkey;
-
     const { proof, publicSignals } = await this.groth16.fullProve(
       circuitInputs,
-      wasmData,
-      zkeyData,
+      this.artifacts.wasm,
+      this.artifacts.zkey,
     );
 
-    const publicInputs = [
-      commitmentHash,
-      nullifier,
-      publicSignals[2] ?? '0',
-      params.recipient,
-    ];
+    // Groth16 public signals (decimal field strings) ARE the public inputs.
+    const publicInputs = publicSignals.length > 0 ? publicSignals : [commitmentHash, nullifier];
+    // The reference circuit emits [.., commitment, nullifier] as its final signals.
+    const circuitCommitment = toFieldHex(publicSignals[publicSignals.length - 2]) ?? commitmentHash;
+    const circuitNullifier = toFieldHex(publicSignals[publicSignals.length - 1]) ?? nullifier;
 
     return {
       proof: proof as unknown as ZKProof,
       publicInputs,
-      commitment: commitmentHash,
-      nullifier,
+      commitment: circuitCommitment,
+      nullifier: circuitNullifier,
     };
   }
 
@@ -111,18 +130,10 @@ export class SnarkjsProver implements Prover {
       circuitInputs[`merklePath_${i}`] = BigInt('0x' + p.replace('0x', ''));
     });
 
-    const wasmData = typeof this.artifacts.wasm === 'string'
-      ? this.artifacts.wasm
-      : this.artifacts.wasm;
-
-    const zkeyData = typeof this.artifacts.zkey === 'string'
-      ? this.artifacts.zkey
-      : this.artifacts.zkey;
-
     const { proof } = await this.groth16.fullProve(
       circuitInputs,
-      wasmData,
-      zkeyData,
+      this.artifacts.wasm,
+      this.artifacts.zkey,
     );
 
     return proof as unknown as ZKProof;
@@ -152,5 +163,22 @@ export class SnarkjsProver implements Prover {
     } catch {
       return false;
     }
+  }
+}
+
+/**
+ * Converts a Groth16 public signal (decimal field string, e.g. "1234567") into
+ * zero-padded hex, or returns `undefined` when the signal is not a plain field
+ * element (e.g. it is an artifact hash or non-numeric placeholder).
+ */
+export function toFieldHex(signal: string | undefined): string | undefined {
+  if (!signal) return undefined;
+  if (!/^\d+$/.test(signal)) return undefined;
+  try {
+    const value = BigInt(signal);
+    if (value < 0n) return undefined;
+    return value.toString(16).padStart(64, '0');
+  } catch {
+    return undefined;
   }
 }
