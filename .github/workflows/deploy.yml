@@ -8,8 +8,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Skipped (not failed) until the Vercel secrets are configured.
-    if: github.repository_owner == 'Stellar-Privacy-Layer-SDK' && secrets.VERCEL_TOKEN != ''
+    # The `secrets` context is NOT allowed in `if` conditions, so map the
+    # token to a job env var first and check that. The job is skipped (not
+    # failed) until VERCEL_TOKEN is configured in the repo secrets.
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    if: github.repository_owner == 'Stellar-Privacy-Layer-SDK' && env.VERCEL_TOKEN != ''
     steps:
       - uses: actions/checkout@v4
 
