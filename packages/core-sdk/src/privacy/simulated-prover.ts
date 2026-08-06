@@ -7,6 +7,7 @@ import {
 } from '../utils/crypto';
 import type { Prover } from './prover';
 import type { ZKProof, ShieldedTransferParams } from '../types';
+import { logger } from '../utils/logger';
 
 const Fr = bn254.fields.Fr;
 
@@ -25,11 +26,10 @@ export class SimulatedProver implements Prover {
   private static warned = false;
 
   async initialize(): Promise<void> {
-    if (!SimulatedProver.warned && typeof console !== 'undefined') {
-      console.warn(
-        '[SimulatedProver] WARNING: Using simulated (fake) ZK prover. ' +
-        'Generated proofs provide NO security guarantees. ' +
-        'Use SnarkjsProver with real circuit artifacts for production.',
+    if (!SimulatedProver.warned) {
+      logger.warn(
+        'Using simulated (fake) ZK prover. Generated proofs provide NO security ' +
+        'guarantees. Use SnarkjsProver with real circuit artifacts for production.',
       );
       SimulatedProver.warned = true;
     }

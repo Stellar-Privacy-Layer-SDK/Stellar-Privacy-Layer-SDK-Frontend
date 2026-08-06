@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { PrivacySDK, createMemoryStorageProvider, Network } from '../index';
+import { Keypair } from '@stellar/stellar-sdk';
+import { PrivacySDK, createMemoryStorageProvider, Network, NETWORK_CONFIGS } from '../index';
+
+const KEY = () => Keypair.random().publicKey();
 
 vi.mock('@stellar/stellar-sdk', async () => {
   const actual = await vi.importActual('@stellar/stellar-sdk');
@@ -12,7 +15,7 @@ vi.mock('@stellar/stellar-sdk', async () => {
   }
   return {
     ...actual,
-    SorobanRpc: {
+    rpc: {
       Server: MockServer,
       Api: {
         isSimulationSuccess: () => true,
@@ -20,7 +23,9 @@ vi.mock('@stellar/stellar-sdk', async () => {
         isSimulationRestore: () => false,
         isSimulationRaw: () => false,
       },
-      assembleTransaction: () => ({ toXDR: () => 'AAAA...' }),
+      assembleTransaction: () => ({
+        build: () => ({ toEnvelope: () => ({ toXDR: () => 'AAAA...' }) }),
+      }),
     },
     TransactionBuilder: { fromXDR: () => ({}) },
   };
@@ -50,7 +55,7 @@ describe('PrivacySDK — Full Flow', () => {
 
   it('completes a full shielded deposit', async () => {
     const result = await sdk.shieldedTransfer.deposit({
-      amount: '1000', token: 'USDC', recipient: 'GA' + 'R'.repeat(54),
+      amount: '1000', token: 'USDC', recipient: KEY(),
     });
     expect(result.txHash).toBeTruthy();
     expect(result.commitmentHash).toMatch(/^0x[0-9a-f]{64}$/);
@@ -60,7 +65,7 @@ describe('PrivacySDK — Full Flow', () => {
 
   it('generates and verifies a proof', async () => {
     const { proof, publicInputs } = await sdk.proofGenerator.generateShieldedTransferProof({
-      amount: '500', token: 'XLM', recipient: 'GA' + 'V'.repeat(54),
+      amount: '500', token: 'XLM', recipient: KEY(),
     });
     expect(proof.protocol).toBe('groth16');
     expect(proof.curve).toBe('bn254');
@@ -106,10 +111,10 @@ describe('PrivacySDK — Full Flow', () => {
 
   it('generates unique commitments for different inputs', async () => {
     const a = await sdk.proofGenerator.generateShieldedTransferProof({
-      amount: '1', token: 'USDC', recipient: 'GA' + 'A'.repeat(54),
+      amount: '1', token: 'USDC', recipient: KEY(),
     });
     const b = await sdk.proofGenerator.generateShieldedTransferProof({
-      amount: '2', token: 'USDC', recipient: 'GA' + 'B'.repeat(54),
+      amount: '2', token: 'USDC', recipient: KEY(),
     });
     expect(a.commitment).not.toBe(b.commitment);
     expect(a.nullifier).not.toBe(b.nullifier);
@@ -117,11 +122,25 @@ describe('PrivacySDK — Full Flow', () => {
 
   it('generates structurally valid Groth16 proofs', async () => {
     const { proof } = await sdk.proofGenerator.generateShieldedTransferProof({
-      amount: '777', token: 'USDC', recipient: 'GA' + 'G'.repeat(54),
+      amount: '777', token: 'USDC', recipient: KEY(),
     });
     expect(sdk.proofVerifier.verifyProofStructure(proof)).toBe(true);
     expect(typeof proof.pi_a[0]).toBe('string');
     expect(proof.protocol).toBe('groth16');
     expect(proof.curve).toBe('bn254');
+  });
+
+  it('accepts network and logLevel options', async () => {
+    const sdk2 = new PrivacySDK({
+      network: NETWORK_CONFIGS[Network.FUTURENET],
+      logLevel: 'debug',
+      storageProvider: createMemoryStorageProvider(),
+    });
+    expect(sdk2.client.getNetworkConfig().network).toBe(Network.FUTURENET);
+    expect(sdk2.wallet.getWalletInfo()).toBeNull();
+  });
+
+  it('shares one proof generator across modules', () => {
+    expect(sdk.shieldedTransfer['proofGenerator']).toBe(sdk.proofGenerator);
   });
 });

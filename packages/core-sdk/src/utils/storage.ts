@@ -1,13 +1,18 @@
-import { StorageProvider } from '../types';
+import type { StorageProvider } from '../types';
 
 const STORAGE_PREFIX = 'stellar-privacy:';
 
+/**
+ * localStorage-backed storage provider. Fails gracefully (returns null /
+ * no-ops) when storage is unavailable, e.g. in private browsing modes.
+ */
 export function createLocalStorageProvider(): StorageProvider {
   return {
     async get(key: string): Promise<string | null> {
       try {
         return localStorage.getItem(STORAGE_PREFIX + key);
       } catch {
+        // storage unavailable — treat as missing
         return null;
       }
     },
@@ -15,17 +20,22 @@ export function createLocalStorageProvider(): StorageProvider {
       try {
         localStorage.setItem(STORAGE_PREFIX + key, value);
       } catch {
-        // storage full or unavailable
+        // storage full or unavailable — persistence is best-effort
       }
     },
     async remove(key: string): Promise<void> {
       try {
         localStorage.removeItem(STORAGE_PREFIX + key);
-      } catch {}
+      } catch {
+        // storage unavailable
+      }
     },
   };
 }
 
+/**
+ * In-memory storage provider (useful for tests and non-browser runtimes).
+ */
 export function createMemoryStorageProvider(): StorageProvider {
   const store = new Map<string, string>();
   return {

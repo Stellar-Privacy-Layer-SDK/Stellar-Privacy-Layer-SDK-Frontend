@@ -13,10 +13,26 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    open: true,
   },
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Vite 8 (rolldown) requires a function form for manualChunks.
+        // Vendor splitting keeps the initial bundle small and cacheable.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('@stellar-privacy')) return 'sdk';
+          if (id.includes('@stellar/stellar-sdk') || id.includes('@stellar/freighter-api')) {
+            return 'stellar';
+          }
+          if (id.includes('@noble')) return 'crypto';
+          if (id.includes('lucide-react')) return 'icons';
+          if (id.includes('react')) return 'react';
+          return undefined;
+        },
+      },
+    },
   },
 });

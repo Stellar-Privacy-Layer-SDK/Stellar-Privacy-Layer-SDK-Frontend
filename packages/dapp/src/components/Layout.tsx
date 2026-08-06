@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet } from 'react-router';
 import {
   Shield,
   Send,
@@ -57,7 +57,7 @@ export function Layout() {
                 to={item.to}
                 end={item.end}
                 onClick={() => setSidebarOpen(false)}
-                className={({ isActive }) =>
+                className={({ isActive }: { isActive: boolean }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                    ${isActive
                      ? 'bg-privacy-500/10 text-privacy-400 border border-privacy-500/20'

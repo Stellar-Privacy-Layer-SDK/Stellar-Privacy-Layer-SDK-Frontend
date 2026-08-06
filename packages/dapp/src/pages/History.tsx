@@ -2,7 +2,7 @@ import { History as HistoryIcon, Shield, Send, CheckCircle, Clock, XCircle } fro
 import { useWallet, useShieldedTransfer } from '../hooks/useSDK';
 import { CopyButton } from '../components/ui/CopyButton';
 import { truncateAddress } from '@stellar-privacy/sdk';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 
 const statusConfig = {
   pending: { icon: Clock, color: 'text-yellow-400', bg: 'bg-yellow-500/10', label: 'Pending' },

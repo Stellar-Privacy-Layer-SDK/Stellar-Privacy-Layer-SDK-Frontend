@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Send, ArrowDown, Shield, Loader2, CheckCircle } from 'lucide-react';
 import { useWallet, useShieldedTransfer } from '../hooks/useSDK';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { toast } from '../components/ui/Toast';
 import { CopyButton } from '../components/ui/CopyButton';
 import { isValidPublicKey, isValidAmount } from '@stellar-privacy/sdk';

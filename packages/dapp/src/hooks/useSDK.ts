@@ -1,11 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { PrivacySDK, WalletInfo, ShieldedTransaction, ViewingKey, Network } from '@stellar-privacy/sdk';
+import {
+  PrivacySDK,
+  WalletInfo,
+  ShieldedTransaction,
+  ViewingKey,
+  Network,
+  createLocalStorageProvider,
+} from '@stellar-privacy/sdk';
+import { getNetworkConfig } from '../env';
+
+const NETWORK_STORAGE_KEY = 'stellar-privacy:network';
 
 let sdkInstance: PrivacySDK | null = null;
+let initPromise: Promise<void> | null = null;
 
 function getSDK(): PrivacySDK {
   if (!sdkInstance) {
-    sdkInstance = new PrivacySDK();
+    sdkInstance = new PrivacySDK({
+      network: getNetworkConfig(),
+      storageProvider: createLocalStorageProvider(),
+    });
+    initPromise = sdkInstance.initialize();
   }
   return sdkInstance;
 }
@@ -13,6 +28,28 @@ function getSDK(): PrivacySDK {
 export function useSDK() {
   const sdk = useRef(getSDK()).current;
   return sdk;
+}
+
+/** Resolves to true once the SDK has loaded its persisted state. */
+export function useSDKReady(): boolean {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getSDK();
+    initPromise
+      ?.then(() => {
+        if (active) setReady(true);
+      })
+      .catch(() => {
+        if (active) setReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return ready;
 }
 
 export function useWallet() {
@@ -26,6 +63,8 @@ export function useWallet() {
     setError(null);
     try {
       const info = await sdk.wallet.connect();
+      // Keep the RPC client in sync so on-chain operations work.
+      await sdk.client.connectWallet(info.publicKey, info.network);
       setWalletInfo(info);
       return info;
     } catch (e) {
@@ -39,12 +78,19 @@ export function useWallet() {
 
   const disconnect = useCallback(() => {
     sdk.wallet.disconnect();
+    sdk.client.disconnectWallet();
     setWalletInfo(null);
   }, [sdk]);
 
   useEffect(() => {
-    const handleConnect = (info: WalletInfo) => setWalletInfo(info);
-    const handleDisconnect = () => setWalletInfo(null);
+    const handleConnect = (info: WalletInfo) => {
+      setWalletInfo(info);
+      void sdk.client.connectWallet(info.publicKey, info.network);
+    };
+    const handleDisconnect = () => {
+      setWalletInfo(null);
+      sdk.client.disconnectWallet();
+    };
 
     sdk.wallet.on('onWalletConnected', handleConnect);
     sdk.wallet.on('onWalletDisconnected', handleDisconnect);
@@ -60,55 +106,55 @@ export function useWallet() {
 
 export function useShieldedTransfer() {
   const sdk = useSDK();
+  const ready = useSDKReady();
   const [transactions, setTransactions] = useState<ShieldedTransaction[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const deposit = useCallback(async (
-    amount: string,
-    token: string,
-    recipient: string,
-    memo?: string,
-  ) => {
-    setIsProcessing(true);
-    setError(null);
-    try {
-      const result = await sdk.shieldedTransfer.deposit({
-        amount,
-        token,
-        recipient,
-        memo,
-      });
-      const history = await sdk.shieldedTransfer.getTransactionHistory();
-      setTransactions(history);
-      return result;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Transfer failed';
-      setError(msg);
-      throw e;
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [sdk]);
+  const deposit = useCallback(
+    async (amount: string, token: string, recipient: string, memo?: string) => {
+      setIsProcessing(true);
+      setError(null);
+      try {
+        const result = await sdk.shieldedTransfer.deposit({
+          amount,
+          token,
+          recipient,
+          memo,
+        });
+        const history = await sdk.shieldedTransfer.getTransactionHistory();
+        setTransactions(history);
+        return result;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Transfer failed';
+        setError(msg);
+        throw e;
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [sdk],
+  );
 
   const refreshHistory = useCallback(async () => {
     try {
       const history = await sdk.shieldedTransfer.getTransactionHistory();
       setTransactions(history);
     } catch {
-      // ignore
+      // history refresh is best-effort
     }
   }, [sdk]);
 
   useEffect(() => {
-    refreshHistory();
-  }, [refreshHistory]);
+    if (ready) void refreshHistory();
+  }, [ready, refreshHistory]);
 
   return { transactions, isProcessing, error, deposit, refreshHistory };
 }
 
 export function useViewingKeys() {
   const sdk = useSDK();
+  const ready = useSDKReady();
   const [keys, setKeys] = useState<ViewingKey[]>([]);
 
   const refresh = useCallback(() => {
@@ -116,32 +162,39 @@ export function useViewingKeys() {
     setKeys(allKeys);
   }, [sdk]);
 
-  const createKey = useCallback(async (
-    label: string,
-    scope: ViewingKey['scope'] = 'full',
-    expiresAt?: number,
-  ) => {
-    const key = await sdk.viewingKeys.createViewingKey(label, scope, expiresAt);
-    refresh();
-    return key;
-  }, [sdk, refresh]);
+  const createKey = useCallback(
+    async (label: string, scope: ViewingKey['scope'] = 'full', expiresAt?: number) => {
+      const key = await sdk.viewingKeys.createViewingKey(label, scope, expiresAt);
+      refresh();
+      return key;
+    },
+    [sdk, refresh],
+  );
 
-  const grantKey = useCallback(async (
-    recipientPublicKey: string,
-    scope: ViewingKey['scope'] = 'full',
-    expiresAt?: number,
-  ) => {
-    const key = await sdk.viewingKeys.grantViewingKey(recipientPublicKey, scope, expiresAt);
-    refresh();
-    return key;
-  }, [sdk, refresh]);
+  const grantKey = useCallback(
+    async (recipientPublicKey: string, scope: ViewingKey['scope'] = 'full', expiresAt?: number) => {
+      const key = await sdk.viewingKeys.grantViewingKey(recipientPublicKey, scope, expiresAt);
+      refresh();
+      return key;
+    },
+    [sdk, refresh],
+  );
 
-  const revokeKey = useCallback(async (keyId: string) => {
-    await sdk.viewingKeys.revokeViewingKey(keyId);
-    refresh();
-  }, [sdk, refresh]);
+  const revokeKey = useCallback(
+    async (keyId: string) => {
+      await sdk.viewingKeys.revokeViewingKey(keyId);
+      refresh();
+    },
+    [sdk, refresh],
+  );
+
+  const getPrivateKey = useCallback(
+    (keyId: string) => sdk.viewingKeys.getPrivateKey(keyId),
+    [sdk],
+  );
 
   useEffect(() => {
+    if (!ready) return;
     refresh();
     sdk.viewingKeys.on('onViewingKeyCreated', refresh);
     sdk.viewingKeys.on('onViewingKeyRevoked', refresh);
@@ -149,32 +202,41 @@ export function useViewingKeys() {
       sdk.viewingKeys.removeListener('onViewingKeyCreated', refresh);
       sdk.viewingKeys.removeListener('onViewingKeyRevoked', refresh);
     };
-  }, [sdk, refresh]);
+  }, [sdk, refresh, ready]);
 
-  return { keys, createKey, grantKey, revokeKey, refresh };
+  return { keys, createKey, grantKey, revokeKey, getPrivateKey, refresh };
 }
 
 export function useNetwork() {
   const sdk = useSDK();
   const [network, setNetwork] = useState<Network>(() => {
     try {
-      const saved = localStorage.getItem('stellar-privacy-network');
+      const saved = localStorage.getItem(NETWORK_STORAGE_KEY);
       return saved ? (saved as Network) : Network.TESTNET;
     } catch {
       return Network.TESTNET;
     }
   });
 
-  const switchNetwork = useCallback((newNetwork: Network) => {
-    sdk.client.switchNetwork(newNetwork);
-    setNetwork(newNetwork);
-    try { localStorage.setItem('stellar-privacy-network', newNetwork); } catch {}
-  }, [sdk]);
+  const switchNetwork = useCallback(
+    (newNetwork: Network) => {
+      sdk.client.switchNetwork(newNetwork);
+      sdk.wallet.setNetwork(newNetwork);
+      setNetwork(newNetwork);
+      try {
+        localStorage.setItem(NETWORK_STORAGE_KEY, newNetwork);
+      } catch {
+        // storage unavailable — network still switches for this session
+      }
+    },
+    [sdk],
+  );
 
   useEffect(() => {
     const cfg = sdk.client.getNetworkConfig();
     if (cfg.network !== network) {
       sdk.client.switchNetwork(network);
+      sdk.wallet.setNetwork(network);
     }
   }, [sdk, network]);
 

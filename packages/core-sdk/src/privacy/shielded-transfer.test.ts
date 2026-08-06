@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { Keypair } from '@stellar/stellar-sdk';
 import { ShieldedTransfer } from './shielded-transfer';
 import { StellarClient } from '../stellar/client';
 import { createMemoryStorageProvider } from '../utils/storage';
+
+const KEY = () => Keypair.random().publicKey();
 vi.mock('@stellar/stellar-sdk', async () => {
   const actual = await vi.importActual('@stellar/stellar-sdk');
   class MockServer {
@@ -13,7 +16,7 @@ vi.mock('@stellar/stellar-sdk', async () => {
   }
   return {
     ...actual,
-    SorobanRpc: {
+    rpc: {
       Server: MockServer,
       Api: {
         isSimulationSuccess: () => true,
@@ -21,7 +24,9 @@ vi.mock('@stellar/stellar-sdk', async () => {
         isSimulationRestore: () => false,
         isSimulationRaw: () => false,
       },
-      assembleTransaction: () => ({ toXDR: () => 'AAAA...' }),
+      assembleTransaction: () => ({
+        build: () => ({ toEnvelope: () => ({ toXDR: () => 'AAAA...' }) }),
+      }),
     },
     TransactionBuilder: { fromXDR: () => ({}) },
   };
@@ -45,7 +50,7 @@ describe('ShieldedTransfer', () => {
     const result = await transfer.deposit({
       amount: '100',
       token: 'USDC',
-      recipient: 'GA' + 'R'.repeat(54),
+      recipient: KEY(),
     });
 
     expect(result.txHash).toBeTruthy();
@@ -61,10 +66,10 @@ describe('ShieldedTransfer', () => {
 
   it('different deposits have different commitments', async () => {
     const a = await transfer.deposit({
-      amount: '200', token: 'USDC', recipient: 'GA' + 'A'.repeat(54),
+      amount: '200', token: 'USDC', recipient: KEY(),
     });
     const b = await transfer.deposit({
-      amount: '300', token: 'XLM', recipient: 'GA' + 'B'.repeat(54),
+      amount: '300', token: 'XLM', recipient: KEY(),
     });
     expect(a.commitmentHash).not.toBe(b.commitmentHash);
   });
@@ -73,7 +78,7 @@ describe('ShieldedTransfer', () => {
     const handler = vi.fn();
     transfer.on('onTransferCompleted', handler);
     await transfer.deposit({
-      amount: '50', token: 'USDC', recipient: 'GA' + 'C'.repeat(54),
+      amount: '50', token: 'USDC', recipient: KEY(),
     });
     expect(handler).toHaveBeenCalledTimes(1);
   });
@@ -95,11 +100,73 @@ describe('ShieldedTransfer', () => {
     const storage = createMemoryStorageProvider();
     const t1 = new ShieldedTransfer(client, storage);
     await t1.initialize();
-    await t1.deposit({ amount: '42', token: 'USDC', recipient: 'GA' + 'P'.repeat(54) });
+    await t1.deposit({ amount: '42', token: 'USDC', recipient: KEY() });
 
     const t2 = new ShieldedTransfer(client, storage);
     await t2.initialize();
     const history = await t2.getTransactionHistory();
     expect(history.some((tx) => tx.amount === '42')).toBe(true);
+  });
+
+  describe('input validation', () => {
+    it('rejects invalid amounts', async () => {
+      await expect(
+        transfer.deposit({ amount: '0', token: 'USDC', recipient: KEY() }),
+      ).rejects.toThrow('Invalid amount');
+      await expect(
+        transfer.deposit({ amount: 'abc', token: 'USDC', recipient: KEY() }),
+      ).rejects.toThrow('Invalid amount');
+    });
+
+    it('rejects invalid recipient keys', async () => {
+      await expect(
+        transfer.deposit({ amount: '10', token: 'USDC', recipient: 'not-a-key' }),
+      ).rejects.toThrow('Invalid recipient');
+    });
+
+    it('rejects missing or oversized tokens', async () => {
+      await expect(
+        transfer.deposit({ amount: '10', token: '', recipient: KEY() }),
+      ).rejects.toThrow('Invalid token');
+      await expect(
+        transfer.deposit({ amount: '10', token: 'T'.repeat(65), recipient: KEY() }),
+      ).rejects.toThrow('Invalid token');
+    });
+  });
+
+  describe('withdraw', () => {
+    it('throws when the commitment does not exist', async () => {
+      await expect(
+        transfer.withdraw('0x' + 'f'.repeat(64), KEY(), '10'),
+      ).rejects.toThrow('Commitment not found');
+    });
+
+    it('withdraws a deposited commitment', async () => {
+      const deposit = await transfer.deposit({
+        amount: '150', token: 'USDC', recipient: KEY(),
+      });
+      const result = await transfer.withdraw(
+        deposit.commitmentHash,
+        KEY(),
+        '150',
+      );
+      expect(result.txHash).toBeTruthy();
+      expect(result.nullifier).toMatch(/^0x[0-9a-f]{64}$/);
+      expect(await transfer.getCommitment(deposit.commitmentHash)).toBeUndefined();
+    });
+
+    it('rejects invalid withdraw recipients', async () => {
+      const deposit = await transfer.deposit({
+        amount: '15', token: 'USDC', recipient: KEY(),
+      });
+      await expect(
+        transfer.withdraw(deposit.commitmentHash, 'bad-key', '15'),
+      ).rejects.toThrow('Invalid recipient');
+    });
+  });
+
+  it('returns the transaction status from the client', async () => {
+    const status = await transfer.refreshTransactionStatus('0x' + 'e'.repeat(64));
+    expect(status).toBe('SUCCESS');
   });
 });

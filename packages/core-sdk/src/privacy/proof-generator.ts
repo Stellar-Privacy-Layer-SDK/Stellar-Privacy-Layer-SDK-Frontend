@@ -18,13 +18,16 @@ export class ProofGenerator {
     return this.prover.isReady();
   }
 
-  async generateShieldedTransferProof(params: ShieldedTransferParams): Promise<{
+  async generateShieldedTransferProof(
+    params: ShieldedTransferParams,
+    secret?: string,
+  ): Promise<{
     proof: ZKProof;
     publicInputs: string[];
     commitment: string;
     nullifier: string;
   }> {
-    const senderSecret = await generateRandomField();
+    const senderSecret = secret ?? (await generateRandomField());
     return this.prover.generateShieldedProof(params, senderSecret);
   }
 

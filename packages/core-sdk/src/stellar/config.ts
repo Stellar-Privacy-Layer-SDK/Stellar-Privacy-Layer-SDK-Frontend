@@ -31,6 +31,29 @@ export const NETWORK_CONFIGS: Record<Network, NetworkConfig> = {
   },
 };
 
+export interface NetworkOverrides {
+  rpcUrl?: string;
+  horizonUrl?: string;
+  contractId?: string;
+}
+
+/**
+ * Resolve a full network config from a network name plus optional overrides
+ * (e.g. values provided via environment variables).
+ */
+export function resolveNetworkConfig(
+  network: Network,
+  overrides: NetworkOverrides = {},
+): NetworkConfig {
+  const base = NETWORK_CONFIGS[network];
+  return {
+    ...base,
+    rpcUrl: overrides.rpcUrl?.trim() || base.rpcUrl,
+    horizonUrl: overrides.horizonUrl?.trim() || base.horizonUrl,
+    contractId: overrides.contractId?.trim() || base.contractId,
+  };
+}
+
 export const PRIVACY_CONTRACT_METHODS = {
   DEPOSIT: 'deposit',
   WITHDRAW: 'withdraw',

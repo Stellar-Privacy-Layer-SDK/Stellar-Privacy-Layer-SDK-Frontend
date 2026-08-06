@@ -40,6 +40,35 @@ describe('poseidonHash', () => {
     const result = await poseidonHash([1, 2, 3]);
     expect(result).toMatch(/^0x[0-9a-f]{64}$/);
   });
+
+  it('hashes a single input', async () => {
+    const result = await poseidonHash(['only']);
+    expect(result).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('hashes more than three inputs without truncation', async () => {
+    const a = await poseidonHash(['a', 'b', 'c', 'd']);
+    expect(a).toMatch(/^0x[0-9a-f]{64}$/);
+    const a2 = await poseidonHash(['a', 'b', 'c', 'd']);
+    expect(a).toBe(a2);
+    // Changing the 4th input must change the output (proves it is included).
+    const b = await poseidonHash(['a', 'b', 'c', 'e']);
+    expect(a).not.toBe(b);
+  });
+
+  it('hashes long input lists consistently', async () => {
+    const inputs = ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7'];
+    const a = await poseidonHash(inputs);
+    const b = await poseidonHash(inputs);
+    expect(a).toBe(b);
+    expect(a).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('hashes an empty input list deterministically', async () => {
+    const a = await poseidonHash([]);
+    const b = await poseidonHash([]);
+    expect(a).toBe(b);
+  });
 });
 
 describe('sha256', () => {
@@ -122,6 +151,22 @@ describe('Merkle tree', () => {
     const path = await generateMerklePath(leaves, 0);
     expect(path.length).toBeGreaterThan(0);
     expect(path[0]).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('generates merkle path for odd leaf counts', async () => {
+    const leaves = [
+      '0x' + 'a'.repeat(64),
+      '0x' + 'b'.repeat(64),
+      '0x' + 'c'.repeat(64),
+    ];
+    const path = await generateMerklePath(leaves, 2);
+    expect(path.length).toBeGreaterThan(0);
+    expect(path[path.length - 1]).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('computes an empty merkle root', async () => {
+    const root = await computeMerkleRoot([]);
+    expect(root).toBe('0x' + '0'.repeat(64));
   });
 });
 

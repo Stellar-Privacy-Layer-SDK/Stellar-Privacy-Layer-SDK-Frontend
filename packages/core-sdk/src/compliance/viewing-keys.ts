@@ -23,13 +23,17 @@ export class ViewingKeyManager extends EventEmitter {
         const entries: [string, ViewingKey][] = JSON.parse(json);
         this.viewingKeys = new Map(entries);
       }
-    } catch {}
+    } catch {
+      // corrupt persisted data is ignored — keys start empty
+    }
   }
 
   private async persistState(): Promise<void> {
     try {
       await this.storage.set(KEYS_CACHE_KEY, JSON.stringify([...this.viewingKeys]));
-    } catch {}
+    } catch {
+      // persistence is best-effort
+    }
   }
 
   async createViewingKey(

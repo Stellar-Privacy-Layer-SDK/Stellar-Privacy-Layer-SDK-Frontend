@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Key, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { useWallet, useViewingKeys } from '../hooks/useSDK';
+import { isDebugEnabled } from '../env';
 import { Modal } from '../components/ui/Modal';
 import { toast } from '../components/ui/Toast';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -10,7 +11,7 @@ type ScopeType = 'full' | 'amount-only' | 'recipient-only';
 
 export function ViewingKeys() {
   const { walletInfo } = useWallet();
-  const { keys, createKey, grantKey, revokeKey } = useViewingKeys();
+  const { keys, createKey, grantKey, revokeKey, getPrivateKey } = useViewingKeys();
 
   const [showCreate, setShowCreate] = useState(false);
   const [showGrant, setShowGrant] = useState(false);
@@ -31,7 +32,7 @@ export function ViewingKeys() {
       setShowCreate(false);
       setNewLabel('');
       toast('success', 'Viewing key created');
-    } catch (err) {
+    } catch {
       toast('error', 'Failed to create key');
     } finally {
       setCreating(false);
@@ -49,7 +50,7 @@ export function ViewingKeys() {
       setShowGrant(false);
       setGrantRecipient('');
       toast('success', 'Viewing key granted');
-    } catch (err) {
+    } catch {
       toast('error', 'Failed to grant key');
     } finally {
       setGranting(false);
@@ -125,8 +126,10 @@ export function ViewingKeys() {
                       PubKey: {truncateAddress(key.publicKey, 8)}
                     </p>
                     {showPrivateKey === key.id && (
-                      <p className="text-xs font-mono text-yellow-400 mt-1">
-                        PrivKey: {key.encryptedPrivateKey.slice(0, 40)}...
+                      <p className="text-xs font-mono text-yellow-400 mt-1 break-all">
+                        {isDebugEnabled()
+                          ? `PrivKey: ${getPrivateKey(key.id) ?? 'unavailable'}`
+                          : 'Private key hidden (enable VITE_DEBUG to reveal)'}
                       </p>
                     )}
                     <div className="flex items-center gap-3 mt-2">

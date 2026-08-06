@@ -6,9 +6,11 @@ import {
   Commitment,
   ShieldedTransaction,
 } from '../types';
-import { generateCommitment, generateNullifier, generateRandomField, poseidonHash } from '../utils/crypto';
+import { generateRandomField, poseidonHash } from '../utils/crypto';
 import { createLocalStorageProvider } from '../utils/storage';
+import { isValidPublicKey, isValidAmount } from '../utils/encoding';
 import type { StorageProvider } from '../types';
+import { logger } from '../utils/logger';
 
 const TX_CACHE_KEY = 'tx_history';
 const COMMITMENT_CACHE_KEY = 'commitments';
@@ -23,9 +25,9 @@ export class ShieldedTransfer {
   private listeners: Map<string, Set<EventHandler>> = new Map();
   private storage: StorageProvider;
 
-  constructor(client: StellarClient, storage?: StorageProvider) {
+  constructor(client: StellarClient, storage?: StorageProvider, proofGenerator?: ProofGenerator) {
     this.client = client;
-    this.proofGenerator = new ProofGenerator();
+    this.proofGenerator = proofGenerator ?? new ProofGenerator();
     this.storage = storage ?? createLocalStorageProvider();
   }
 
@@ -39,8 +41,11 @@ export class ShieldedTransfer {
         const entries: [string, Commitment][] = JSON.parse(cmJson);
         this.commitments = new Map(entries);
       }
-    } catch {
-      // ignore corrupt data
+    } catch (error) {
+      // Corrupt persisted state should never break the SDK.
+      logger.warn('Failed to load persisted shielded-transfer state', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -48,8 +53,11 @@ export class ShieldedTransfer {
     try {
       await this.storage.set(TX_CACHE_KEY, JSON.stringify(this.transactions));
       await this.storage.set(COMMITMENT_CACHE_KEY, JSON.stringify([...this.commitments]));
-    } catch {
-      // storage full
+    } catch (error) {
+      // Persistence is best-effort; the SDK continues in-memory.
+      logger.warn('Failed to persist shielded-transfer state', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -71,20 +79,31 @@ export class ShieldedTransfer {
     await this.loadPersistedState();
   }
 
+  private validateDepositParams(params: ShieldedTransferParams): void {
+    if (!params || typeof params !== 'object') {
+      throw new Error('Deposit parameters are required');
+    }
+    if (!isValidAmount(params.amount)) {
+      throw new Error('Invalid amount: must be a positive number');
+    }
+    if (!isValidPublicKey(params.recipient)) {
+      throw new Error('Invalid recipient: must be a valid Stellar public key (G...)');
+    }
+    if (!params.token || typeof params.token !== 'string' || params.token.length > 64) {
+      throw new Error('Invalid token: must be a non-empty string (max 64 chars)');
+    }
+  }
+
   async deposit(params: ShieldedTransferParams): Promise<ShieldedTransferResult> {
+    this.validateDepositParams(params);
     this.emit('onTransferInitiated', params);
 
     try {
+      // One secret drives BOTH the on-chain commitment and the ZK proof so the
+      // proven commitment matches the one actually committed on-chain.
       const senderSecret = await generateRandomField();
-      const nullifier = await generateNullifier(senderSecret, 0);
-      const commitmentHash = await generateCommitment(
-        senderSecret,
-        params.recipient,
-        params.amount,
-        params.token,
-      );
-
-      const { proof, publicInputs } = await this.proofGenerator.generateShieldedTransferProof(params);
+      const { proof, publicInputs, commitment: commitmentHash, nullifier } =
+        await this.proofGenerator.generateShieldedTransferProof(params, senderSecret);
 
       const isValid = await this.proofGenerator.verifyProof(proof, publicInputs);
       if (!isValid) {
@@ -98,8 +117,13 @@ export class ShieldedTransfer {
           params.amount,
           params.token,
         );
-      } catch {
-        txHash = 'simulated_' + commitmentHash.slice(0, 16);
+      } catch (error) {
+        // Off-chain / demo mode: simulate the transaction so the SDK remains
+        // usable without a live network.
+        txHash = 'simulated_' + commitmentHash.slice(2, 18);
+        logger.warn('Deposit transaction failed — simulated tx hash used', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
       const commitment: Commitment = {
@@ -138,6 +162,11 @@ export class ShieldedTransfer {
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Shielded deposit failed');
       this.emit('onTransferFailed', err);
+      logger.error('Shielded deposit failed', {
+        amount: params.amount,
+        token: params.token,
+        error: err.message,
+      });
       throw err;
     }
   }
@@ -150,6 +179,12 @@ export class ShieldedTransfer {
     const commitment = this.commitments.get(commitmentHash);
     if (!commitment) {
       throw new Error('Commitment not found. Deposit must be made first.');
+    }
+    if (!isValidPublicKey(recipient)) {
+      throw new Error('Invalid recipient: must be a valid Stellar public key (G...)');
+    }
+    if (!isValidAmount(amount)) {
+      throw new Error('Invalid amount: must be a positive number');
     }
 
     const nullifier = await poseidonHash([commitmentHash, recipient]);
@@ -177,8 +212,11 @@ export class ShieldedTransfer {
         recipient,
         JSON.stringify(withdrawalProof),
       );
-    } catch {
-      txHash = 'simulated_withdraw_' + commitmentHash.slice(0, 16);
+    } catch (error) {
+      txHash = 'simulated_withdraw_' + commitmentHash.slice(2, 18);
+      logger.warn('Withdraw transaction failed — simulated tx hash used', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     this.commitments.delete(commitmentHash);

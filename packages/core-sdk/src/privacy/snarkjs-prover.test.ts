@@ -1,5 +1,15 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { SnarkjsProver } from './snarkjs-prover';
+
+const mockFullProve = vi.fn();
+const mockVerify = vi.fn();
+
+vi.mock('snarkjs', () => ({
+  groth16: {
+    fullProve: (...args: unknown[]) => mockFullProve(...args),
+    verify: (...args: unknown[]) => mockVerify(...args),
+  },
+}));
 
 describe('SnarkjsProver', () => {
   let prover: SnarkjsProver;
@@ -88,5 +98,70 @@ describe('SnarkjsProver', () => {
       vkey: 'vkey_data',
     });
     await expect(p.initialize()).resolves.toBeUndefined();
+  });
+
+  describe('with mocked snarkjs artifacts', () => {
+    const artifacts = { wasm: 'wasm', zkey: 'zkey', vkey: 'vkey' };
+    const proof = {
+      pi_a: ['0x1', '0x2'],
+      pi_b: [['0x3', '0x4'], ['0x5', '0x6']],
+      pi_c: ['0x7', '0x8'],
+      protocol: 'groth16',
+      curve: 'bn254',
+    };
+
+    beforeEach(() => {
+      mockFullProve.mockResolvedValue({ proof, publicSignals: ['a', 'b', 'c'] });
+      mockVerify.mockResolvedValue(true);
+    });
+
+    it('becomes ready with artifacts after initialize', async () => {
+      const p = new SnarkjsProver(artifacts);
+      await p.initialize();
+      expect(p.isReady()).toBe(true);
+    });
+
+    it('generates a shielded proof with consistent public inputs', async () => {
+      const p = new SnarkjsProver(artifacts);
+      await p.initialize();
+      const result = await p.generateShieldedProof(
+        { amount: '100', token: 'USDC', recipient: 'GA' + 'X'.repeat(54) },
+        'super-secret',
+      );
+      expect(result.commitment).toMatch(/^[0-9a-f]{64}$/);
+      expect(result.nullifier).toMatch(/^[0-9a-f]{64}$/);
+      expect(result.publicInputs).toHaveLength(4);
+      expect(result.proof.protocol).toBe('groth16');
+      expect(mockFullProve).toHaveBeenCalled();
+    });
+
+    it('generates a withdrawal proof', async () => {
+      const p = new SnarkjsProver(artifacts);
+      await p.initialize();
+      const result = await p.generateWithdrawalProof(
+        '0x' + 'a'.repeat(64),
+        '0x' + 'b'.repeat(64),
+        ['0x' + 'c'.repeat(64)],
+        'GA' + 'X'.repeat(54),
+        '50',
+      );
+      expect(result.protocol).toBe('groth16');
+    });
+
+    it('verifies a proof through snarkjs', async () => {
+      const p = new SnarkjsProver(artifacts);
+      await p.initialize();
+      const ok = await p.verifyProof(proof, ['input1']);
+      expect(ok).toBe(true);
+      expect(mockVerify).toHaveBeenCalled();
+    });
+
+    it('returns false when snarkjs verification throws', async () => {
+      mockVerify.mockRejectedValueOnce(new Error('bad vkey'));
+      const p = new SnarkjsProver(artifacts);
+      await p.initialize();
+      const ok = await p.verifyProof(proof, ['input1']);
+      expect(ok).toBe(false);
+    });
   });
 });

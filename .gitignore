@@ -1,8 +1,23 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
-.vscode/
-*.log
-.env
-.DS_Store
 coverage/
 *.tsbuildinfo
+packages/contract/target/
+packages/contract/test_snapshots/
+
+# Environment (never commit secrets)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Tooling / OS
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*

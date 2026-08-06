@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createLocalStorageProvider, createMemoryStorageProvider } from './storage';
 import type { StorageProvider } from '../types';
 
@@ -66,9 +66,51 @@ function runStorageTests(label: string, createProvider: () => StorageProvider) {
 
 runStorageTests('MemoryStorageProvider', createMemoryStorageProvider);
 
-if (typeof localStorage !== 'undefined') {
-  runStorageTests('LocalStorageProvider', () => {
-    localStorage.clear();
-    return createLocalStorageProvider();
+describe('LocalStorageProvider', () => {
+  let backing: Map<string, string>;
+  let ls: {
+    getItem: ReturnType<typeof vi.fn>;
+    setItem: ReturnType<typeof vi.fn>;
+    removeItem: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    backing = new Map();
+    ls = {
+      getItem: vi.fn((k: string) => backing.get(k) ?? null),
+      setItem: vi.fn((k: string, v: string) => { backing.set(k, v); }),
+      removeItem: vi.fn((k: string) => { backing.delete(k); }),
+    };
+    vi.stubGlobal('localStorage', ls);
   });
-}
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('uses the stellar-privacy: key prefix', async () => {
+    const storage = createLocalStorageProvider();
+    await storage.set('k1', 'v1');
+    expect(backing.get('stellar-privacy:k1')).toBe('v1');
+    expect(await storage.get('k1')).toBe('v1');
+  });
+
+  it('removes with the prefix', async () => {
+    const storage = createLocalStorageProvider();
+    await storage.set('k1', 'v1');
+    await storage.remove('k1');
+    expect(backing.has('stellar-privacy:k1')).toBe(false);
+  });
+
+  it('survives storage failures without throwing', async () => {
+    const storage = createLocalStorageProvider();
+    ls.setItem.mockImplementation(() => { throw new Error('quota exceeded'); });
+    await expect(storage.set('k', 'v')).resolves.toBeUndefined();
+
+    ls.getItem.mockImplementation(() => { throw new Error('denied'); });
+    expect(await storage.get('k')).toBeNull();
+
+    ls.removeItem.mockImplementation(() => { throw new Error('denied'); });
+    await expect(storage.remove('k')).resolves.toBeUndefined();
+  });
+});

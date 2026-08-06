@@ -75,5 +75,81 @@ describe('ViewingKeyManager', () => {
       const active = vk.getActiveViewingKeys();
       expect(active.some((k) => k.id === key.id)).toBe(false);
     });
+
+    it('throws when revoking an unknown key', async () => {
+      await expect(vk.revokeViewingKey('nope')).rejects.toThrow('Viewing key not found');
+    });
+  });
+
+  describe('createDisclosureRequest', () => {
+    it('creates a full-scope payload', async () => {
+      const payload = await vk.createDisclosureRequest({
+        regulatorPublicKey: 'GA' + 'X'.repeat(54),
+        scope: 'full',
+        reason: 'Audit',
+      });
+      expect(payload.scope).toBe('full');
+      expect(payload.timestamp).toBeGreaterThan(0);
+      expect(payload.proof.protocol).toBe('groth16');
+    });
+
+    it('omits fields based on scope', async () => {
+      const amountOnly = await vk.createDisclosureRequest({
+        regulatorPublicKey: 'GA' + 'X'.repeat(54),
+        scope: 'amount-only',
+        reason: 'x',
+      });
+      expect(amountOnly.amount).toBeDefined();
+      expect(amountOnly.recipient).toBeUndefined();
+
+      const recipientOnly = await vk.createDisclosureRequest({
+        regulatorPublicKey: 'GA' + 'X'.repeat(54),
+        scope: 'recipient-only',
+        reason: 'x',
+      });
+      expect(recipientOnly.amount).toBeUndefined();
+      expect(recipientOnly.recipient).toBeDefined();
+    });
+  });
+
+  describe('signDisclosurePayload / verifyDisclosurePayload', () => {
+    const basePayload = () => ({
+      transactionHash: 'tx1',
+      commitmentHash: 'cm1',
+      proof: {
+        pi_a: ['0x1', '0x2'],
+        pi_b: [['0x3', '0x4'], ['0x5', '0x6']],
+        pi_c: ['0x7', '0x8'],
+        protocol: 'groth16',
+        curve: 'bn254',
+      },
+      scope: 'full',
+      timestamp: 1234,
+    });
+
+    it('signs a payload and verifies it', async () => {
+      const key = await vk.createViewingKey('Audit Key', 'full');
+      const signed = await vk.signDisclosurePayload(basePayload(), key.id);
+      expect(signed.signerPublicKey).toBe(key.publicKey);
+      expect(signed.regulatorSignature).toBeTruthy();
+      expect(await vk.verifyDisclosurePayload(signed)).toBe(true);
+    });
+
+    it('rejects unsigned payloads', async () => {
+      expect(await vk.verifyDisclosurePayload(basePayload())).toBe(false);
+    });
+
+    it('throws when signing with an unknown key', async () => {
+      await expect(vk.signDisclosurePayload(basePayload(), 'unknown-id')).rejects.toThrow(
+        'Viewing key not found',
+      );
+    });
+  });
+
+  it('exposes the private key for a created key', async () => {
+    const key = await vk.createViewingKey('Priv', 'full');
+    const priv = vk.getPrivateKey(key.id);
+    expect(priv).toBeTruthy();
+    expect(priv).toMatch(/^[0-9a-f]{64}$/);
   });
 });

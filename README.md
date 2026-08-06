@@ -1,60 +1,187 @@
-# Stellar Privacy Layer — Confidential Transfers SDK
+# 🔒 Stellar Privacy Layer — Confidential Transfers SDK
 
-A developer-friendly SDK and reference dApp for confidential asset transfers on Stellar using Protocol 25 ZK primitives. Enables client-side transaction privacy with institutional compliance through selective disclosure viewing keys.
+A developer-friendly SDK and reference dApp for **confidential asset transfers on Stellar** using Protocol 25 ZK primitives. It enables client-side transaction privacy with institutional compliance through selective-disclosure viewing keys.
+
+> **The "hug and ripples" concept:** a shielded transfer is like a hug — the act itself is felt (the shielded pool grows, a commitment ripples onto the ledger) but the details (who, how much, to whom) stay private. Every shielded transaction sends out ripples of privacy across the network.
+
+---
 
 ## Features
 
 - **Shielded Transfers** — Deposit and withdraw assets privately using zero-knowledge proofs
-- **Real Poseidon Hashing** — BN254 field Poseidon hash via `@noble/curves` (not SHA-256 placeholder)
-- **Groth16 Proofs** — Simulated prover with Fiat-Shamir verification; real snarkjs integration available
-- **Soroban Verifier Contract** — Rust reference implementation (Protocol 25 built-in ZK ops)
+- **Real Poseidon Hashing** — BN254 field Poseidon hash via `@noble/curves` (not a SHA-256 placeholder)
+- **Groth16 Proofs** — Simulated prover with Fiat–Shamir verification for development; real `snarkjs` integration available for production circuit artifacts
+- **Soroban Verifier Contract** — Rust reference implementation using Protocol 25 built-in ZK ops (BN254 pairing precompile)
 - **Selective Disclosure** — Compliance-friendly viewing keys with scoped access (amount-only, recipient-only, full)
-- **Freighter Wallet** — Full integration with Freighter API v3 for Stellar wallet connectivity
-- **Persistence** — State preservation across sessions via pluggable storage providers (localStorage, memory)
+- **Freighter Wallet** — Full integration with the Freighter API for Stellar wallet connectivity
+- **Persistence** — State preserved across sessions via pluggable storage providers (`localStorage`, memory)
 - **Multi-Network** — Testnet, Mainnet, Futurenet, Sandbox with one-line switching
+
+---
 
 ## Project Structure
 
 ```
 packages/
-  core-sdk/       — SDK library (TypeScript, 83 tests, 9 test suites)
+  core-sdk/       — SDK library (TypeScript, 169 tests / 14 suites)
     src/
       privacy/    — ShieldedTransfer, ProofGenerator, SimulatedProver, SnarkjsProver, Verifier
       stellar/    — StellarClient (Soroban RPC), WalletManager (Freighter API)
       compliance/ — ViewingKeyManager, SelectiveDisclosure
-      utils/      — Poseidon hash, encoding, storage providers
-      e2e/        — Full end-to-end integration test
-  dapp/           — React reference dApp (Vite + Tailwind, 7 tests)
-  contract/       — Soroban verifier contract (Rust)
+      utils/      — Poseidon hash, encoding, storage providers, structured logger
+      e2e/        — Full end-to-end SDK flow test
+  dapp/           — React reference dApp (Vite + Tailwind, 71 tests / 16 suites)
+  contract/       — Soroban verifier contract (Rust, 8 tests)
 ```
+
+---
+
+## Requirements
+
+| Tool    | Version   |
+| ------- | --------- |
+| Node.js | >= 22.12  |
+| npm     | >= 10     |
+| Rust    | stable    (contract only — `cargo` + `soroban-cli` for deploy) |
+
+---
 
 ## Quick Start
 
 ```bash
-npm install
-npm run test -w packages/core-sdk
-npm run dev              # launch dApp
+npm install          # install all workspace dependencies
+npm run dev          # launch the dApp at http://localhost:3000
 ```
 
-## Test Suite
+The dApp runs entirely client-side. Install the [Freighter wallet](https://freighter.app/) browser extension, connect, and you're ready to make shielded transfers.
 
-```
-✓ 83 tests across 9 files — all passing
-  - 18 crypto tests (Poseidon, nullifier, commitment, key generation)
-  -  7 proof-generator tests (generate, verify, tamper detection)
-  -  7 shielded-transfer tests (deposit, persistence, events)
-  -  7 selective-disclosure tests (request, scope, verify)
-  -  9 viewing-key tests (create, grant, revoke)
-  -  9 StellarClient tests (connect, switch, deposit, withdraw, verify)
-  -  5 verifier tests (local verify, structure check)
-  - 12 encoding tests (hex, base64, field conversion)
-  -  9 e2e tests (full SDK flow, persistence, Groth16 structure)
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and adjust:
+
+```bash
+cp .env.example .env
 ```
 
-## Requirements
+| Variable                | Required | Default   | Description                                             |
+| ----------------------- | -------- | --------- | ------------------------------------------------------- |
+| `VITE_STELLAR_NETWORK`  | no       | `testnet` | `public` \| `testnet` \| `futurenet` \| `sandbox`        |
+| `VITE_SOROBAN_RPC_URL`  | no       | network default | Custom Soroban RPC endpoint                       |
+| `VITE_CONTRACT_ID`      | no       | —         | Deployed privacy contract ID (`C...`)                   |
+| `VITE_HORIZON_URL`      | no       | network default | Custom Horizon endpoint                            |
+| `VITE_DEBUG`            | no       | `false`   | `true` enables verbose SDK logging                       |
 
-- Node.js >= 18
-- npm workspaces
+> **Security:** never commit a real `.env`. `.env*` files are git-ignored; only `.env.example` (which contains no secrets) is tracked. All variables are read via `src/env.ts` with validated fallbacks.
+
+---
+
+## Useful Commands
+
+| Command                        | Purpose                                        |
+| ------------------------------ | ---------------------------------------------- |
+| `npm run dev`                  | Run the dApp (Vite dev server on port 3000)    |
+| `npm run build`                | Build SDK + dApp for production                |
+| `npm run lint`                 | ESLint over the whole repo                     |
+| `npm run typecheck`            | TypeScript strict-mode check (both packages)   |
+| `npm test`                     | Run all unit + integration tests (240 tests)   |
+| `npm run test:coverage`        | Run tests with coverage (80%+ thresholds)      |
+| `npm audit`                    | Dependency vulnerability scan                  |
+| `npm run verify`               | **Full gate:** lint → typecheck → coverage → build |
+| `npm run docker:up`            | Build & run the Dockerized dApp                |
+| `npm run deploy`               | Same as `docker:up` via `scripts/deploy.sh`    |
+
+---
+
+## Testing & Coverage
+
+Both packages use **Vitest** with enforced coverage thresholds (CI fails below them):
+
+- **core-sdk:** 169 tests, **~94% line coverage** (statements/functions/branches ≥ 80/75)
+- **dapp:** 71 tests, **~91% line coverage**
+- **contract:** 8 Rust unit tests (deposit, double-spend, viewing-key lifecycle, proof verification)
+
+```bash
+npm run test:coverage        # runs everything and enforces thresholds
+```
+
+---
+
+## Docker Deployment
+
+The app ships as a multi-stage Docker image (Node build stage → nginx runtime) with SPA routing, asset caching, security headers, and a health check.
+
+**One-command run:**
+
+```bash
+docker compose up -d --build        # or: npm run docker:up
+```
+
+Then open **http://localhost:3000**.
+
+| Command                 | Purpose                              |
+| ----------------------- | ------------------------------------ |
+| `npm run docker:build`  | Build the image                      |
+| `npm run docker:up`     | Build + start in the background      |
+| `npm run docker:down`   | Stop and remove the container        |
+| `npm run deploy`        | Same as `docker:up` (loads `.env`)   |
+| `./scripts/deploy.sh logs` | Stream container logs             |
+
+Configure the network at build time via env vars (Vite inlines them):
+
+```bash
+VITE_STELLAR_NETWORK=testnet VITE_CONTRACT_ID=CA... docker compose build
+```
+
+### Manual deployment (no Docker)
+
+```bash
+npm ci
+npm run build
+# serve packages/dapp/dist with any static server, e.g.:
+npx serve -s packages/dapp/dist
+```
+
+---
+
+## Soroban Contract
+
+The Rust verifier contract lives in `packages/contract/`:
+
+```bash
+cd packages/contract
+cargo test        # run the 8 unit tests
+cargo build       # build the cdylib
+```
+
+To deploy on a live network you'll need the `soroban-cli` toolchain (see the [Soroban docs](https://soroban.stellar.org/docs)). The contract exposes `deposit`, `withdraw`, `verify_proof`, `set_vkey`, `set_viewing_key`, `revoke_viewing_key`, and `is_nullifier_spent`.
+
+---
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
+
+1. **lint-and-typecheck** — ESLint, `tsc --noEmit`, and `npm audit`
+2. **test-sdk** — core-sdk tests with coverage thresholds
+3. **test-dapp** — dApp tests with coverage thresholds
+4. **build** — production build of both packages (gated on 1–3)
+5. **contract** — `cargo test` for the Rust verifier (with cached deps)
+
+All checks must pass before merge. Locally, `npm run verify` replicates the full gate.
+
+---
+
+## Security Notes
+
+- No secrets in code — all configuration flows through git-ignored env vars with `.env.example` as the documented template
+- Zero known npm vulnerabilities (`npm audit` is clean and enforced in CI)
+- Contracts validate inputs (checksum-valid Stellar keys, amount ranges, memo truncation)
+- Production security headers + immutable asset caching baked into the nginx config
+- ⚠️ The **simulated prover** is for development/demo only. For production-grade privacy, wire up the `SnarkjsProver` with real Groth16 circuit artifacts (`.wasm` + `.zkey`) and a deployed verifier contract.
+
+---
 
 ## License
 

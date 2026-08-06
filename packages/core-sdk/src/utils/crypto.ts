@@ -41,11 +41,27 @@ function toBigInt(value: string | bigint | number): bigint {
   return result;
 }
 
+/**
+ * Poseidon hash over an arbitrary number of field elements using a sponge
+ * construction (state of width `POSEIDON_T` absorbs `t-1` elements per
+ * permutation round, chaining the previous output through `state[0]`).
+ *
+ * This correctly incorporates ALL inputs — the previous implementation
+ * silently truncated inputs beyond three elements, which would have dropped
+ * the `token` from commitment hashes.
+ */
 export function poseidonHash(inputs: (string | bigint | number)[]): Promise<string> {
   const fieldEls = inputs.map((i) => Fr.create(toBigInt(i)));
-  const padded = [...fieldEls, Fr.ZERO, Fr.ZERO].slice(0, POSEIDON_T);
-  const result = _poseidonFn(padded);
-  const hex = result[0].toString(16).padStart(64, '0');
+  const chunkSize = POSEIDON_T - 1;
+
+  let state: bigint[] = [Fr.ZERO, Fr.ZERO, Fr.ZERO];
+  for (let i = 0; i < fieldEls.length; i += chunkSize) {
+    const block: bigint[] = [state[0], ...fieldEls.slice(i, i + chunkSize)];
+    while (block.length < POSEIDON_T) block.push(Fr.ZERO);
+    state = _poseidonFn(block);
+  }
+
+  const hex = state[0].toString(16).padStart(64, '0');
   return Promise.resolve('0x' + hex);
 }
 

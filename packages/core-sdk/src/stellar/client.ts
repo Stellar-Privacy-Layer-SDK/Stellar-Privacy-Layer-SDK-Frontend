@@ -1,22 +1,26 @@
 import {
-  SorobanRpc,
-  Contract,
+  rpc,
   xdr,
-  scValToNative,
-  nativeToScVal,
+  Contract,
   TransactionBuilder,
   Networks,
+  scValToNative,
+  nativeToScVal,
 } from '@stellar/stellar-sdk';
 import { EventEmitter } from 'events';
 import { Network, NetworkConfig, WalletInfo, SDKConfig } from '../types';
 import { NETWORK_CONFIGS, PRIVACY_CONTRACT_METHODS } from './config';
+import { logger } from '../utils/logger';
 
-interface AssembleResult {
-  toXDR(): string;
-}
-
+/**
+ * Client for the Soroban RPC server and the privacy verifier contract.
+ *
+ * Owns the RPC connection and the currently connected wallet; all on-chain
+ * operations funnel through this class so the rest of the SDK stays
+ * network-agnostic.
+ */
 export class StellarClient extends EventEmitter {
-  private rpc: SorobanRpc.Server;
+  private rpc: rpc.Server;
   private contract: Contract | null = null;
   private config: SDKConfig;
   private walletInfo: WalletInfo | null = null;
@@ -28,7 +32,7 @@ export class StellarClient extends EventEmitter {
       network: networkConfig,
       storageProvider: config.storageProvider,
     };
-    this.rpc = new SorobanRpc.Server(networkConfig.rpcUrl);
+    this.rpc = new rpc.Server(networkConfig.rpcUrl);
 
     if (networkConfig.contractId) {
       this.contract = new Contract(networkConfig.contractId);
@@ -48,9 +52,13 @@ export class StellarClient extends EventEmitter {
   }
 
   async connectWallet(publicKey: string, network: Network = Network.TESTNET): Promise<WalletInfo> {
+    if (!publicKey) {
+      throw new Error('Cannot connect wallet: public key is required');
+    }
     this.setNetwork(network);
     this.walletInfo = { publicKey, network, isConnected: true };
     this.emit('onWalletConnected', this.walletInfo);
+    logger.info('Wallet connected', { publicKey, network });
     return this.walletInfo;
   }
 
@@ -60,11 +68,12 @@ export class StellarClient extends EventEmitter {
       this.walletInfo = { ...this.walletInfo, network };
       this.emit('onWalletConnected', this.walletInfo);
     }
+    logger.info('Network switched', { network });
   }
 
   private setNetwork(network: Network): void {
     this.config.network = NETWORK_CONFIGS[network];
-    this.rpc = new SorobanRpc.Server(this.config.network.rpcUrl);
+    this.rpc = new rpc.Server(this.config.network.rpcUrl);
     if (this.config.network.contractId) {
       this.contract = new Contract(this.config.network.contractId);
     }
@@ -73,11 +82,16 @@ export class StellarClient extends EventEmitter {
   disconnectWallet(): void {
     this.walletInfo = null;
     this.emit('onWalletDisconnected');
+    logger.info('Wallet disconnected');
   }
 
   setContractId(contractId: string): void {
+    if (!contractId) {
+      throw new Error('Contract ID is required');
+    }
     this.config.network.contractId = contractId;
     this.contract = new Contract(contractId);
+    logger.info('Contract ID set', { contractId });
   }
 
   private getContract(): Contract {
@@ -87,47 +101,52 @@ export class StellarClient extends EventEmitter {
     return this.contract;
   }
 
-  async simulateTransaction(method: string, ...args: xdr.ScVal[]): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const contract = this.getContract();
-    const operation = contract.call(method, ...args);
-    const source = await this.rpc.getAccount(this.walletInfo!.publicKey);
-    const transaction = new TransactionBuilder(source, {
+  private requireWallet(): WalletInfo {
+    if (!this.walletInfo || !this.walletInfo.isConnected) {
+      throw new Error('Wallet not connected');
+    }
+    return this.walletInfo;
+  }
+
+  private async buildTransaction(operation: xdr.Operation): Promise<TransactionBuilder> {
+    const wallet = this.requireWallet();
+    const source = await this.rpc.getAccount(wallet.publicKey);
+    return new TransactionBuilder(source, {
       fee: '10000',
       networkPassphrase: this.config.network.networkPassphrase,
     })
       .addOperation(operation)
-      .setTimeout(30)
-      .build();
+      .setTimeout(30);
+  }
 
+  async simulateTransaction(
+    method: string,
+    ...args: xdr.ScVal[]
+  ): Promise<rpc.Api.SimulateTransactionResponse> {
+    this.requireWallet();
+    const operation = this.getContract().call(method, ...args);
+    const transaction = (await this.buildTransaction(operation)).build();
     return this.rpc.simulateTransaction(transaction);
   }
 
   async sendTransaction(method: string, ...args: xdr.ScVal[]): Promise<string> {
-    if (!this.walletInfo) throw new Error('Wallet not connected');
+    const wallet = this.requireWallet();
 
-    const contract = this.getContract();
-    const operation = contract.call(method, ...args);
-    const source = await this.rpc.getAccount(this.walletInfo.publicKey);
-    const transaction = new TransactionBuilder(source, {
-      fee: '10000',
-      networkPassphrase: this.config.network.networkPassphrase,
-    })
-      .addOperation(operation)
-      .setTimeout(30)
-      .build();
+    const operation = this.getContract().call(method, ...args);
+    const transaction = (await this.buildTransaction(operation)).build();
 
     const simulated = await this.rpc.simulateTransaction(transaction);
-    if (!SorobanRpc.Api.isSimulationSuccess(simulated)) {
-      throw new Error('Transaction simulation failed');
+    if (!rpc.Api.isSimulationSuccess(simulated)) {
+      throw new Error(`Transaction simulation failed for method "${method}"`);
     }
 
-    const prepared = SorobanRpc.assembleTransaction(transaction, simulated) as unknown as AssembleResult;
+    const prepared = rpc.assembleTransaction(transaction, simulated);
+    const preparedXdr = prepared.build().toEnvelope().toXDR('base64');
 
     const { signTransaction } = await import('@stellar/freighter-api');
-    const signedResult = await signTransaction(
-      prepared.toXDR(),
-      { networkPassphrase: this.config.network.networkPassphrase },
-    );
+    const signedResult = await signTransaction(preparedXdr, {
+      networkPassphrase: this.config.network.networkPassphrase,
+    });
 
     const signedXdr = typeof signedResult === 'string' ? signedResult : signedResult.signedTxXdr;
 
@@ -137,66 +156,53 @@ export class StellarClient extends EventEmitter {
     );
 
     const sendResponse = await this.rpc.sendTransaction(signedTransaction);
-    return sendResponse.status;
+    const txHash = sendResponse.hash ?? sendResponse.status;
+    logger.info('Transaction submitted', {
+      method,
+      network: this.config.network.network,
+      source: wallet.publicKey,
+      txHash,
+      status: sendResponse.status,
+    });
+    return txHash;
   }
 
   async getAccountBalance(publicKey: string): Promise<string> {
     try {
       const account = await this.rpc.getAccount(publicKey);
       return (account as unknown as { balance?: string }).balance || '0';
-    } catch {
+    } catch (error) {
+      logger.warn('Failed to fetch account balance', {
+        publicKey,
+        error: this.errorMessage(error),
+      });
       return '0';
     }
   }
 
   async callContract(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal> {
-    if (!this.walletInfo) throw new Error('Wallet not connected');
+    this.requireWallet();
 
-    const contract = this.getContract();
-    const operation = contract.call(method, ...args);
-    const source = await this.rpc.getAccount(this.walletInfo.publicKey);
-    const tx = new TransactionBuilder(source, {
-      fee: '10000',
-      networkPassphrase: this.config.network.networkPassphrase,
-    })
-      .addOperation(operation)
-      .setTimeout(30)
-      .build();
+    const operation = this.getContract().call(method, ...args);
+    const transaction = (await this.buildTransaction(operation)).build();
 
-    const result = await this.rpc.simulateTransaction(tx);
-    if (SorobanRpc.Api.isSimulationSuccess(result) && result.result?.retval) {
+    const result = await this.rpc.simulateTransaction(transaction);
+    if (rpc.Api.isSimulationSuccess(result) && result.result?.retval) {
       return result.result.retval;
     }
-    throw new Error('Contract call failed');
+    throw new Error(`Contract call failed for method "${method}"`);
   }
 
   async getTransactionStatus(txHash: string): Promise<string> {
     try {
       const response = await this.rpc.getTransaction(txHash);
       return response.status;
-    } catch {
+    } catch (error) {
+      logger.warn('Failed to fetch transaction status', {
+        txHash,
+        error: this.errorMessage(error),
+      });
       return 'not_found';
-    }
-  }
-
-  async getLedgerEntry(key: xdr.ScVal): Promise<xdr.ScVal | null> {
-    try {
-      const cid = this.config.network.contractId;
-      const contractIdBytes = Buffer.from(cid.replace(/^0x/i, ''), 'hex');
-      const ledgerKey = xdr.LedgerKey.contractData(
-        new xdr.LedgerKeyContractData({
-          contract: xdr.ScAddress.scAddressTypeContract(contractIdBytes),
-          key,
-          durability: xdr.ContractDataDurability.persistent(),
-        }),
-      );
-      const response = await this.rpc.getLedgerEntries(ledgerKey);
-      if (response.entries.length > 0) {
-        return response.entries[0].val as unknown as xdr.ScVal;
-      }
-      return null;
-    } catch {
-      return null;
     }
   }
 
@@ -258,5 +264,9 @@ export class StellarClient extends EventEmitter {
       nativeToScVal(txHash, { type: 'string' }),
       nativeToScVal(disclosureData, { type: 'string' }),
     );
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 }

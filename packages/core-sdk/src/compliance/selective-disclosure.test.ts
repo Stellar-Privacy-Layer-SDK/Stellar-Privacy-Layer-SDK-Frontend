@@ -32,7 +32,7 @@ vi.mock('@stellar/stellar-sdk', async () => {
 
   return {
     ...actual,
-    SorobanRpc: {
+    rpc: {
       Server: class {
         getAccount() { return { accountId: () => 'GA' + 'X'.repeat(54) }; }
         simulateTransaction() { return { status: 'SUCCESS' }; }
@@ -46,7 +46,9 @@ vi.mock('@stellar/stellar-sdk', async () => {
         isSimulationRestore: () => false,
         isSimulationRaw: () => false,
       },
-      assembleTransaction: () => ({ toXDR: () => 'AAAA...' }),
+      assembleTransaction: () => ({
+        build: () => ({ toEnvelope: () => ({ toXDR: () => 'AAAA...' }) }),
+      }),
     },
     TransactionBuilder: MockTxBuilder,
   };
@@ -146,5 +148,39 @@ describe('SelectiveDisclosure', () => {
     const payloads = await sd.approveDisclosure(id, [makeTx()]);
     const valid = await sd.verifyDisclosure(payloads[0], 'GA' + 'V'.repeat(54));
     expect(valid).toBe(true);
+  });
+
+  it('verifies signed payloads using the viewing key signature', async () => {
+    const regulator = 'GA' + 'W'.repeat(54);
+    await vk.grantViewingKey(regulator, 'full');
+    const req: ComplianceDisclosureRequest = {
+      regulatorPublicKey: regulator,
+      scope: 'full', reason: 'Signed audit',
+    };
+    const id = await sd.requestDisclosure(req);
+    const payloads = await sd.approveDisclosure(id, [makeTx()]);
+    expect(payloads[0].regulatorSignature).toBeTruthy();
+    const valid = await sd.verifyDisclosure(payloads[0], regulator);
+    expect(valid).toBe(true);
+  });
+
+  it('stores and retrieves disclosure payloads by transaction hash', async () => {
+    const req: ComplianceDisclosureRequest = {
+      regulatorPublicKey: 'GA' + 'Y'.repeat(54),
+      scope: 'full', reason: 'Storage',
+    };
+    const id = await sd.requestDisclosure(req);
+    const tx = makeTx({ txHash: '0xabc123' });
+    await sd.approveDisclosure(id, [tx]);
+    const payload = sd.getDisclosurePayload('0xabc123');
+    expect(payload).toBeDefined();
+    expect(payload!.transactionHash).toBe('0xabc123');
+    expect(sd.getDisclosurePayload('missing')).toBeUndefined();
+  });
+
+  it('runs an audit disclosure for a regulator', async () => {
+    const payloads = await sd.requestAuditDisclosure([makeTx()], 'GA' + 'Z'.repeat(54));
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].scope).toBe('full');
   });
 });

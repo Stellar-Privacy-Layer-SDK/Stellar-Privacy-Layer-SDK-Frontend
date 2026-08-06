@@ -1,0 +1,20 @@
+services:
+  web:
+    build:
+      context: .
+      args:
+        VITE_STELLAR_NETWORK: ${VITE_STELLAR_NETWORK:-testnet}
+        VITE_SOROBAN_RPC_URL: ${VITE_SOROBAN_RPC_URL:-}
+        VITE_CONTRACT_ID: ${VITE_CONTRACT_ID:-}
+        VITE_HORIZON_URL: ${VITE_HORIZON_URL:-}
+        VITE_DEBUG: ${VITE_DEBUG:-false}
+    image: stellar-privacy-layer:latest
+    ports:
+      - "${PORT:-3000}:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

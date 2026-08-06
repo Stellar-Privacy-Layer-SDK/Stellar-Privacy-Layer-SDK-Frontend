@@ -1,6 +1,6 @@
 import { Shield, Send, Key, FileSearch, ArrowRight, Lock, Eye, Coins } from 'lucide-react';
 import { useWallet } from '../hooks/useSDK';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 
 const quickActions = [
   {

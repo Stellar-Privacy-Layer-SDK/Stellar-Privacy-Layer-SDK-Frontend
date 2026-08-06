@@ -128,6 +128,8 @@ export interface TokenInfo {
 
 export type EventCallback = (...args: unknown[]) => void;
 
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
 export interface SDKConfig {
   network: NetworkConfig;
   wallet?: WalletInfo;

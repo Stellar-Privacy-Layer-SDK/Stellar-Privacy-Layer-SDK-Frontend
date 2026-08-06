@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { WalletInfo, Network, SDKConfig } from '../types';
+import { NETWORK_CONFIGS } from './config';
 
 export type WalletProvider = 'freighter' | 'xbull' | 'albedo' | 'rabet' | 'lobstr';
 
@@ -24,13 +25,8 @@ export class WalletManager extends EventEmitter {
   constructor(config: Partial<SDKConfig> = {}) {
     super();
     this.config = {
-      network: config.network || {
-        network: Network.TESTNET,
-        rpcUrl: 'https://soroban-rpc-testnet.stellar.org',
-        networkPassphrase: 'Test SDF Network ; September 2015',
-        contractId: '',
-        horizonUrl: 'https://horizon-testnet.stellar.org',
-      },
+      network: config.network || NETWORK_CONFIGS[Network.TESTNET],
+      storageProvider: config.storageProvider,
     };
   }
 
@@ -44,6 +40,11 @@ export class WalletManager extends EventEmitter {
 
   setProvider(provider: WalletProvider): void {
     this.provider = provider;
+  }
+
+  /** Keep the wallet's network in sync when the client switches networks. */
+  setNetwork(network: Network): void {
+    this.config.network = NETWORK_CONFIGS[network];
   }
 
   async isFreighterInstalled(): Promise<boolean> {
@@ -98,7 +99,7 @@ export class WalletManager extends EventEmitter {
       return this.walletInfo;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to connect to Freighter';
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     }
   }
 

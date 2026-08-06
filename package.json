@@ -1,32 +1,46 @@
 {
   "name": "stellar-privacy-layer",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "🔒 Stellar Privacy Layer — Confidential Transfers SDK",
   "workspaces": [
     "packages/core-sdk",
     "packages/dapp"
   ],
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "build": "npm run build --workspaces",
     "build:sdk": "npm run build -w packages/core-sdk",
     "build:dapp": "npm run build -w packages/dapp",
     "dev": "npm run dev -w packages/dapp",
     "dev:sdk": "npm run dev -w packages/core-sdk",
-    "lint": "eslint . && npm run typecheck --workspaces",
+    "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "npm run typecheck --workspaces",
-    "clean": "npm run clean --workspaces"
+    "test": "npm run test --workspaces",
+    "test:sdk": "npm run test -w packages/core-sdk",
+    "test:dapp": "npm run test -w packages/dapp",
+    "test:coverage": "npm run test:coverage --workspaces",
+    "audit": "npm audit --audit-level=high",
+    "verify": "npm run lint && npm run typecheck && npm run test:coverage && npm run build",
+    "clean": "npm run clean --workspaces",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "deploy": "bash scripts/deploy.sh up"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/events": "^3.0.3",
-    "@types/node": "^26.0.1",
-    "eslint": "^10.6.0",
-    "typescript": "^5.5.0",
-    "typescript-eslint": "^8.62.1"
+    "@types/node": "^26.1.2",
+    "eslint": "^10.8.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "overrides": {
+    "underscore": "^1.13.8"
   }
 }

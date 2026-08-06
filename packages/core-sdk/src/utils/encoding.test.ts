@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Keypair } from '@stellar/stellar-sdk';
 import {
   toHex,
   fromHex,
@@ -26,6 +27,11 @@ describe('fromHex', () => {
   it('handles 0x prefix', () => {
     expect(Array.from(fromHex('0x00ff80'))).toEqual([0, 255, 128]);
   });
+
+  it('normalizes odd-length hex by left-padding', () => {
+    expect(Array.from(fromHex('f'))).toEqual([15]);
+    expect(Array.from(fromHex('0xff1'))).toEqual([15, 241]);
+  });
 });
 
 describe('toBase64 / fromBase64', () => {
@@ -35,12 +41,23 @@ describe('toBase64 / fromBase64', () => {
     const decoded = fromBase64(encoded);
     expect(Array.from(decoded)).toEqual([72, 101, 108, 108, 111]);
   });
+
+  it('handles large inputs without stack overflow', () => {
+    const big = new Uint8Array(100_000);
+    for (let i = 0; i < big.length; i++) big[i] = i % 256;
+    const decoded = fromBase64(toBase64(big));
+    expect(Array.from(decoded)).toEqual(Array.from(big));
+  });
 });
 
 describe('truncateAddress', () => {
   it('truncates long addresses', () => {
     const result = truncateAddress('GA' + 'X'.repeat(55), 6);
     expect(result).toBe('GAXXXX...XXXX');
+  });
+
+  it('returns short addresses unchanged', () => {
+    expect(truncateAddress('GAXX', 6)).toBe('GAXX');
   });
 });
 
@@ -63,13 +80,14 @@ describe('sanitizeMemo', () => {
 
 describe('isValidPublicKey', () => {
   it('accepts valid G... keys', () => {
-    expect(isValidPublicKey('GA' + 'X'.repeat(54))).toBe(true);
+    expect(isValidPublicKey(Keypair.random().publicKey())).toBe(true);
   });
 
   it('rejects invalid keys', () => {
     expect(isValidPublicKey('')).toBe(false);
     expect(isValidPublicKey('XYZ')).toBe(false);
-    expect(isValidPublicKey('SA' + 'X'.repeat(54))).toBe(false);
+    expect(isValidPublicKey('G' + 'X'.repeat(55))).toBe(false);
+    expect(isValidPublicKey(Keypair.random().secret())).toBe(false);
   });
 });
 
