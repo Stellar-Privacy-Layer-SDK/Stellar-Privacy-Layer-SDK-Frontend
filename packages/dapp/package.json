@@ -7,14 +7,19 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "predev": "npm run build -w @stellar-privacy/sdk",
     "dev": "vite",
+    "prebuild": "npm run build -w @stellar-privacy/sdk",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "pretypecheck": "npm run build -w @stellar-privacy/sdk",
     "typecheck": "tsc --noEmit",
+    "pretest": "npm run build -w @stellar-privacy/sdk",
     "test": "vitest run",
     "test:watch": "vitest",
+    "pretest:coverage": "npm run build -w @stellar-privacy/sdk",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {

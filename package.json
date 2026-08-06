@@ -13,7 +13,7 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build:sdk && npm run build:dapp",
     "build:sdk": "npm run build -w packages/core-sdk",
     "build:dapp": "npm run build -w packages/dapp",
     "dev": "npm run dev -w packages/dapp",
