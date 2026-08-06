@@ -8,12 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # The `secrets` context is NOT allowed in `if` conditions, so map the
-    # token to a job env var first and check that. The job is skipped (not
-    # failed) until VERCEL_TOKEN is configured in the repo secrets.
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-    if: github.repository_owner == 'Stellar-Privacy-Layer-SDK' && env.VERCEL_TOKEN != ''
+    if: github.repository_owner == 'Stellar-Privacy-Layer-SDK'
     steps:
       - uses: actions/checkout@v4
 
@@ -29,7 +24,11 @@ jobs:
         run: npm run build -w packages/core-sdk
 
       - name: Deploy to Vercel
-        working-directory: packages/dapp
+        # Skipped (not failed) until VERCEL_TOKEN is configured as a repo
+        # secret. Note: the `secrets` and `env` contexts are NOT allowed in
+        # job-level `if` conditions, so the presence check happens at the step
+        # level where `env` is available.
+        if: env.VERCEL_TOKEN != ''
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
