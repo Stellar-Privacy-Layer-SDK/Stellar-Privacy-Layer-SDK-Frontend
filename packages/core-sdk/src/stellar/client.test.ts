@@ -254,7 +254,7 @@ describe('StellarClient', () => {
         protocol: 'groth16',
         curve: 'bn128',
       };
-      expect(await client.withdraw(proof, '0x1', '0x2', WALLET)).toBe('mock_hash');
+      expect(await client.withdraw({ proof, root: '0x1', nullifier: '0x2', recipient: WALLET, relayer: WALLET, fee: '0' })).toBe('mock_hash');
     });
   });
 

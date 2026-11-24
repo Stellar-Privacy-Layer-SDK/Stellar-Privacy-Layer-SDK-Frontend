@@ -11,7 +11,7 @@ export interface ProverArtifacts {
 export interface WithdrawalStatement {
   secret: string;
   merkleProof: MerkleProof;
-  /** The recipient as a field element (see `recipientField`). */
+  /** Recipient, relayer and fee as a field element (see `payoutField`). */
   recipient: string;
 }
 

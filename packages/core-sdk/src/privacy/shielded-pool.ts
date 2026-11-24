@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { recipientField } from '../stellar/abi.js';
+import { payoutField } from '../stellar/abi.js';
 import { NotSubmittedError, type StellarClient } from '../stellar/client.js';
 import type { PoolInfo, ShieldedTransaction, StorageProvider } from '../types.js';
 import { generateRandomField } from '../utils/crypto.js';
@@ -176,8 +176,23 @@ export class ShieldedPool extends EventEmitter {
     return { txHash, note };
   }
 
-  /** Withdraws a whole note to `recipient`. */
-  async withdraw(commitment: string, recipient: string): Promise<{ txHash: string }> {
+  /** The relayer's fee and what the recipient receives, in the smallest unit. */
+  async quoteWithdrawal(): Promise<{ fee: string; received: string }> {
+    const { denomination } = await this.client.getPoolInfo();
+    const fee = this.relayer ? (await this.relayer.getInfo()).fee : '0';
+    if (BigInt(fee) >= BigInt(denomination)) throw new Error('The relayer fee is too high');
+    return { fee, received: (BigInt(denomination) - BigInt(fee)).toString() };
+  }
+
+  /**
+   * Withdraws a whole note to `recipient`. Pass the quoted fee as `maxFee` so
+   * the relayer cannot raise it.
+   */
+  async withdraw(
+    commitment: string,
+    recipient: string,
+    maxFee?: string,
+  ): Promise<{ txHash: string }> {
     const note = this.getNotes().find((n) => n.commitment === commitment);
     if (!note) throw new Error('Note not found');
     if (note.status === 'spent') throw new Error('Note is already spent');
@@ -186,20 +201,32 @@ export class ShieldedPool extends EventEmitter {
     }
     if (!this.prover) throw new Error('No prover configured');
 
+    const quote = await this.quoteWithdrawal();
+    if (maxFee !== undefined && BigInt(quote.fee) > BigInt(maxFee)) {
+      throw new Error('The relayer raised its fee; review it and try again');
+    }
     const tree = await this.syncTree();
     const index = tree.leaves.indexOf(note.commitment);
     if (index === -1) throw new Error('The deposit is not confirmed on-chain yet');
 
+    const relayer = this.relayer ? (await this.relayer.getInfo()).address : recipient;
     const merkleProof = tree.prove(index);
     const { proof } = await this.prover.proveWithdrawal({
       secret: note.secret,
       merkleProof,
-      recipient: recipientField(recipient),
+      recipient: payoutField(recipient, relayer, quote.fee),
     });
-    const request = { proof, root: merkleProof.root, nullifier: note.nullifier, recipient };
+    const request = {
+      proof,
+      root: merkleProof.root,
+      nullifier: note.nullifier,
+      recipient,
+      relayer,
+      fee: quote.fee,
+    };
     const txHash = this.relayer
       ? await this.relayer.withdraw(request)
-      : await this.client.withdraw(proof, request.root, request.nullifier, recipient);
+      : await this.client.withdraw(request);
     note.status = 'spending';
     this.record('withdrawal', note, txHash, recipient);
     await this.save();

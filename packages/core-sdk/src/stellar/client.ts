@@ -8,8 +8,9 @@ import {
   nativeToScVal,
 } from '@stellar/stellar-sdk';
 import { EventEmitter } from 'events';
-import { Network, NetworkConfig, PoolInfo, WalletInfo, SDKConfig, ZKProof } from '../types.js';
+import { Network, NetworkConfig, PoolInfo, WalletInfo, SDKConfig } from '../types.js';
 import { NETWORK_CONFIGS } from './config.js';
+import type { WithdrawalRequest } from '../privacy/relayer.js';
 import { encodeGroth16Proof, fieldBytes } from './abi.js';
 import { toHex } from '../utils/encoding.js';
 import { logger } from '../utils/logger.js';
@@ -287,20 +288,17 @@ export class StellarClient extends EventEmitter {
     );
   }
 
-  async withdraw(
-    proof: ZKProof,
-    root: string,
-    nullifier: string,
-    recipient: string,
-  ): Promise<string> {
+  async withdraw(request: WithdrawalRequest): Promise<string> {
     return this.sendTransaction(
       'withdraw',
-      nativeToScVal(encodeGroth16Proof(proof), {
+      nativeToScVal(encodeGroth16Proof(request.proof), {
         type: { a: ['symbol', 'bytes'], b: ['symbol', 'bytes'], c: ['symbol', 'bytes'] },
       }),
-      this.field(root),
-      this.field(nullifier),
-      Address.fromString(recipient).toScVal(),
+      this.field(request.root),
+      this.field(request.nullifier),
+      Address.fromString(request.recipient).toScVal(),
+      Address.fromString(request.relayer).toScVal(),
+      nativeToScVal(BigInt(request.fee), { type: 'i128' }),
     );
   }
 

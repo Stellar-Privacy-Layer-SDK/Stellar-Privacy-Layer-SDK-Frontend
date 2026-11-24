@@ -166,7 +166,8 @@ export function usePool() {
 
   const deposit = useCallback(() => run(() => sdk.pool.deposit()), [sdk, run]);
   const withdraw = useCallback(
-    (note: Note, recipient: string) => run(() => sdk.pool.withdraw(note.commitment, recipient)),
+    (note: Note, recipient: string, maxFee: string) =>
+      run(() => sdk.pool.withdraw(note.commitment, recipient, maxFee)),
     [sdk, run],
   );
   const importNote = useCallback(

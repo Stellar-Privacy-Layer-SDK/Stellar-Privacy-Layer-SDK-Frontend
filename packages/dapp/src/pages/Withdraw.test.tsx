@@ -7,7 +7,10 @@ import { Withdraw } from './Withdraw';
 
 const mockUseWallet = vi.fn();
 const mockPool = vi.fn();
+const quoteWithdrawal = vi.fn();
+const sdk = { pool: { quoteWithdrawal, getInfo: async () => ({ decimals: 7 }) } };
 vi.mock('../hooks/useSDK', () => ({
+  useSDK: () => sdk,
   useWallet: () => mockUseWallet(),
   usePool: () => mockPool(),
 }));
@@ -37,6 +40,7 @@ function renderPage() {
 
 describe('Withdraw', () => {
   beforeEach(() => {
+    quoteWithdrawal.mockResolvedValue({ fee: '5000000', received: '1' });
     withdraw.mockReset().mockResolvedValue({ txHash: 'w' });
     mockUseWallet.mockReturnValue({ walletInfo: { isConnected: true } });
     mockPool.mockReturnValue({
@@ -56,8 +60,9 @@ describe('Withdraw', () => {
     expect(screen.getByText('No notes to withdraw')).toBeDefined();
   });
 
-  it('validates the form', () => {
+  it('validates the form', async () => {
     renderPage();
+    await screen.findByText('Relayer fee: 0.5000000');
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
     expect(screen.getByText('Select a note to withdraw')).toBeDefined();
     expect(screen.getByText(/valid Stellar public key/)).toBeDefined();
@@ -68,9 +73,10 @@ describe('Withdraw', () => {
     renderPage();
     fireEvent.click(screen.getByRole('radio'));
     fireEvent.change(screen.getByLabelText('Recipient (G...)'), { target: { value: recipient } });
+    await screen.findByText('Relayer fee: 0.5000000');
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
     await waitFor(() => expect(screen.getByText('History page')).toBeDefined());
-    expect(withdraw).toHaveBeenCalledWith(commitment, recipient);
+    expect(withdraw).toHaveBeenCalledWith(commitment, recipient, '5000000');
   });
 
   it('stays on the page when the withdrawal fails', async () => {
@@ -78,6 +84,7 @@ describe('Withdraw', () => {
     renderPage();
     fireEvent.click(screen.getByRole('radio'));
     fireEvent.change(screen.getByLabelText('Recipient (G...)'), { target: { value: recipient } });
+    await screen.findByText('Relayer fee: 0.5000000');
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
     await waitFor(() => expect(withdraw).toHaveBeenCalled());
     expect(screen.queryByText('History page')).toBeNull();
@@ -92,5 +99,12 @@ describe('Withdraw', () => {
     fireEvent.change(screen.getByLabelText('Restore a note backup'), { target: { value: 'b' } });
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
     await waitFor(() => expect(importNote).toHaveBeenCalledWith('b'));
+  });
+
+  it('blocks withdrawals when there is no quote', async () => {
+    quoteWithdrawal.mockRejectedValue(new Error('Relayer error: HTTP 500'));
+    renderPage();
+    expect(await screen.findByText(/HTTP 500/)).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Withdraw' })).toHaveProperty('disabled', true);
   });
 });

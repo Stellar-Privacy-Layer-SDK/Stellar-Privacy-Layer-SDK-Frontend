@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodeGroth16Proof, fieldBytes, recipientField } from './abi.js';
+import { encodeGroth16Proof, fieldBytes, payoutField } from './abi.js';
 import { toHex } from '../utils/encoding.js';
 
 describe('fieldBytes', () => {
@@ -26,11 +26,12 @@ describe('encodeGroth16Proof', () => {
   });
 });
 
-describe('recipientField', () => {
-  it('is deterministic, distinct per address and fits the field', () => {
-    const a = recipientField('CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA');
-    const b = recipientField('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
-    expect(a).toMatch(/^0x00[0-9a-f]{62}$/);
-    expect(a).not.toBe(b);
+describe('payoutField', () => {
+  it('depends on every part and fits the field', () => {
+    const a = 'CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA';
+    const b = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+    const values = [payoutField(a, b, '1'), payoutField(b, a, '1'), payoutField(a, b, '2')];
+    expect(new Set(values).size).toBe(3);
+    values.forEach((v) => expect(v).toMatch(/^0x00[0-9a-f]{62}$/));
   });
 });

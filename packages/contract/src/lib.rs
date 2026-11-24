@@ -96,6 +96,7 @@ pub enum Error {
     UnknownRoot = 6,
     NullifierSpent = 7,
     InvalidProof = 8,
+    InvalidFee = 9,
 }
 
 #[contractevent]
@@ -110,6 +111,8 @@ pub struct Withdrawal {
     #[topic]
     pub nullifier: BytesN<32>,
     pub recipient: Address,
+    pub relayer: Address,
+    pub fee: i128,
 }
 
 #[contract]
@@ -190,15 +193,22 @@ impl ShieldedPool {
         index
     }
 
-    /// Pays one denomination to `recipient`. Needs no authorization: the proof
-    /// is bound to the recipient, so any account may submit it.
+    /// Pays `recipient` one denomination less `fee`, which goes to `relayer`.
+    /// Needs no authorization: the proof is bound to all three, so any account
+    /// may submit it but cannot change who is paid.
     pub fn withdraw(
         env: Env,
         proof: Groth16Proof,
         root: BytesN<32>,
         nullifier: BytesN<32>,
         recipient: Address,
+        relayer: Address,
+        fee: i128,
     ) {
+        let config = load_config(&env);
+        if fee < 0 || fee > config.denomination {
+            panic_with_error!(&env, Error::InvalidFee);
+        }
         // A non-canonical encoding would be a second spelling of one nullifier.
         require_canonical(&env, &nullifier);
         let key = Key::Nullifier(nullifier.clone());
@@ -212,7 +222,7 @@ impl ShieldedPool {
             &env,
             nullifier.clone(),
             root,
-            recipient_field(&env, &recipient),
+            payout_field(&env, &recipient, &relayer, fee),
         ];
         if !verify(&env, proof, inputs) {
             panic_with_error!(&env, Error::InvalidProof);
@@ -220,13 +230,15 @@ impl ShieldedPool {
         persist(&env, &key, &true);
         bump(&env);
 
-        let config = load_config(&env);
-        token::TokenClient::new(&env, &config.token).transfer(
-            &env.current_contract_address(),
-            &recipient,
-            &config.denomination,
-        );
-        Withdrawal { nullifier, recipient }.publish(&env);
+        let pool = env.current_contract_address();
+        let token = token::TokenClient::new(&env, &config.token);
+        if fee < config.denomination {
+            token.transfer(&pool, &recipient, &(config.denomination - fee));
+        }
+        if fee > 0 {
+            token.transfer(&pool, &relayer, &fee);
+        }
+        Withdrawal { nullifier, recipient, relayer, fee }.publish(&env);
     }
 
     pub fn pool_info(env: Env) -> PoolInfo {
@@ -288,9 +300,13 @@ fn require_canonical(env: &Env, value: &BytesN<32>) {
     }
 }
 
-/// sha256 of the address XDR with the top byte cleared, so it fits the field.
-fn recipient_field(env: &Env, recipient: &Address) -> BytesN<32> {
-    let mut bytes = env.crypto().sha256(&recipient.to_xdr(env)).to_array();
+/// sha256 of the recipient, relayer and fee XDR with the top byte cleared, so
+/// it fits the field. Bound into the proof as its `recipient` input.
+fn payout_field(env: &Env, recipient: &Address, relayer: &Address, fee: i128) -> BytesN<32> {
+    let mut data = recipient.to_xdr(env);
+    data.append(&relayer.to_xdr(env));
+    data.append(&fee.to_xdr(env));
+    let mut bytes = env.crypto().sha256(&data).to_array();
     bytes[0] = 0;
     BytesN::from_array(env, &bytes)
 }

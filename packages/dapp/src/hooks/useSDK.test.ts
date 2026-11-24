@@ -233,11 +233,11 @@ describe('usePool', () => {
     const { result } = renderHook(() => usePool());
     await act(async () => {
       await result.current.deposit();
-      await result.current.withdraw(note, publicKey);
+      await result.current.withdraw(note, publicKey, '5');
       await result.current.importNote('backup');
     });
     expect(mocks.pool.deposit).toHaveBeenCalled();
-    expect(mocks.pool.withdraw).toHaveBeenCalledWith('0x1', publicKey);
+    expect(mocks.pool.withdraw).toHaveBeenCalledWith('0x1', publicKey, '5');
     expect(mocks.pool.importNote).toHaveBeenCalledWith('backup');
   });
 
