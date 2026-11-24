@@ -66,7 +66,7 @@ jobs:
         working-directory: packages/contract
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # supported by the pinned Playwright version
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -90,3 +90,5 @@ jobs:
         run: |
           timeout 240 bash -c 'until curl -s -H "content-type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}" localhost:8000/soroban/rpc | grep -q healthy && curl -s -o /dev/null -w "%{http_code}" localhost:8000/friendbot | grep -qv 502; do sleep 3; done'
       - run: npm run test:e2e
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser

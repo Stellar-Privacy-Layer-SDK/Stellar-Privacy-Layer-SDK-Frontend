@@ -19,7 +19,9 @@ circuits/           withdraw.circom (Groth16, BN254, tree depth 20)
 packages/contract/  Soroban pool: tree, proof verification, token custody; no admin
 packages/core-sdk/  SDK: notes, proving, contract client, viewing keys, disclosure
 packages/dapp/      React dApp (Freighter)
-scripts/            circuit build, pool deployment, end-to-end test
+packages/relayer/   Submits withdrawals so users' accounts stay hidden
+scripts/            circuit build, pool deployment
+e2e/                SDK and browser tests against a local network
 ```
 
 ## Quick start
@@ -41,7 +43,9 @@ against a local network:
 
 ```bash
 docker run --rm -d -p 8000:8000 stellar/quickstart:latest --local --limits testnet
-npm run build:contract && npm run build:sdk && npm run test:e2e
+npm run build:contract && npm run build:sdk
+npm run test:e2e           # SDK
+npx playwright install chromium && npm run test:browser   # dApp and relayer
 ```
 
 ### Deploy a pool
@@ -58,8 +62,18 @@ ones the pool was deployed with.
 | `VITE_STELLAR_NETWORK`  | `public`, `testnet` (default), `futurenet`, `sandbox` |
 | `VITE_CONTRACT_ID`      | Pool contract ID                                  |
 | `VITE_ZK_ARTIFACTS_URL` | Base URL of the artifacts; required to withdraw   |
+| `VITE_RELAYER_URL`      | Relayer; without it your wallet submits withdrawals |
 | `VITE_SOROBAN_RPC_URL`, `VITE_HORIZON_URL` | Endpoint overrides             |
 | `VITE_DEBUG`            | `true` for verbose logs                           |
+
+### Run a relayer
+
+```bash
+RELAYER_SECRET=S... CONTRACT_ID=C... NETWORK=testnet npm start -w packages/relayer
+```
+
+It pays transaction fees itself and is not reimbursed. Put it behind TLS; its
+rate limit uses the socket address, so a proxy needs its own.
 
 ## SDK
 
@@ -80,7 +94,8 @@ await sdk.pool.refresh();
 await sdk.pool.withdraw(note.commitment, 'G...recipient');
 ```
 
-Pass `signer` to sign without Freighter, for example in Node.
+For encrypted storage pass `storageProvider: await unlockEncryptedStorage(createLocalStorageProvider(), password)`;
+the default stores secrets in plaintext. Pass `relayer: new HttpRelayer(url)` to hide the submitting account. Pass `signer` to sign without Freighter, for example in Node.
 
 ## Security and limitations
 
@@ -88,14 +103,14 @@ Pass `signer` to sign without Freighter, for example in Node.
   phase 2 is a single local contribution, so whoever built the key could forge
   proofs. A multi-party phase 2 is needed, and `deploy:pool` refuses mainnet.
 - **Anonymity depends on the pool.** Few deposits, or withdrawing soon after
-  depositing, makes linking easy. There is no relayer service, so the account
-  that submits a withdrawal and pays its fee is visible.
-- **Note secrets are stored unencrypted** in the browser. Losing them loses the
-  deposit; leaking them lets others withdraw.
-- **Disclosures are signed attestations**, not zero-knowledge proofs. Private
-  viewing keys live in memory and are lost on reload.
-- The dApp reads every commitment from the contract, which will not scale to
-  large pools without an indexer. Pool tokens are assumed to have 7 decimals.
+  depositing, makes linking easy.
+- **Losing both the password and the note backup loses the deposit.**
+- **Disclosures are signed attestations**, not zero-knowledge proofs.
+- Commitments are read from the contract 100 at a time; large pools need an
+  indexer. Pool tokens are assumed to have 7 decimals.
+
+See [SECURITY.md](SECURITY.md) for the threat model and
+[CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 
 ## Docker Deployment
 

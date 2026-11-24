@@ -84,8 +84,8 @@ export function Deposit() {
             <CopyButton text={sdk.pool.exportNote(note.commitment)} />
           </div>
           <p className="text-xs text-yellow-400">
-            Copy it somewhere safe. It is stored unencrypted in this browser: without it the
-            deposit is lost, and anyone who has it can withdraw.
+            Copy it somewhere safe. If this browser's data or your password is lost, only the
+            backup can recover the deposit. Anyone who has it can withdraw.
           </p>
         </div>
       )}

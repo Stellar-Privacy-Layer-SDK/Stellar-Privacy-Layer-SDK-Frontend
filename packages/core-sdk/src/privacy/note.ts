@@ -1,8 +1,11 @@
 import { poseidonHash } from '../utils/crypto.js';
 import type { Network } from '../types.js';
 
-/** `spending` and `unconfirmed` are settled by `ShieldedPool.refresh()`. */
-export type NoteStatus = 'unconfirmed' | 'available' | 'spending' | 'spent';
+/**
+ * `spending` and `unconfirmed` are settled by `ShieldedPool.refresh()`. A
+ * `failed` note never reached the pool; its secret is kept just in case.
+ */
+export type NoteStatus = 'unconfirmed' | 'failed' | 'available' | 'spending' | 'spent';
 
 /** A deposit that can be withdrawn by whoever knows `secret`. */
 export interface Note {

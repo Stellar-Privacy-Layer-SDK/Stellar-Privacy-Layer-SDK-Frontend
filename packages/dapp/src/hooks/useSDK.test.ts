@@ -26,6 +26,7 @@ const { mocks } = vi.hoisted(() => ({
     },
     wallet: {
       connect: vi.fn(),
+      getWalletInfo: vi.fn((): unknown => null),
       disconnect: vi.fn(),
       setNetwork: vi.fn(),
       on: vi.fn(),
@@ -100,6 +101,12 @@ describe('useWallet', () => {
     });
     expect(mocks.wallet.connect).toHaveBeenCalled();
     expect(mocks.client.connectWallet).toHaveBeenCalledWith(publicKey, 'testnet');
+    expect(result.current.walletInfo?.isConnected).toBe(true);
+  });
+
+  it('sees a wallet that was connected before mounting', () => {
+    mocks.wallet.getWalletInfo.mockReturnValueOnce({ publicKey, isConnected: true });
+    const { result } = renderHook(() => useWallet());
     expect(result.current.walletInfo?.isConnected).toBe(true);
   });
 

@@ -6,13 +6,20 @@ import { ShieldedPool } from './shielded-pool.js';
 import { decodeNote } from './note.js';
 import { SnarkjsProver } from './snarkjs-prover.js';
 import type { Prover } from './prover.js';
-import type { StellarClient } from '../stellar/client.js';
+import { NotSubmittedError, type StellarClient } from '../stellar/client.js';
+import { MerkleTree } from '../utils/merkle.js';
 import { createMemoryStorageProvider } from '../utils/storage.js';
 import { Network, type ZKProof } from '../types.js';
 
 const CONTRACT = 'CPOOL';
 const recipient = Keypair.random().publicKey();
 const proof = { pi_a: ['1', '2'] } as unknown as ZKProof;
+
+const rootOf = async (leaves: string[]) => {
+  const tree = new MerkleTree();
+  for (const leaf of leaves) await tree.append(leaf);
+  return tree.root;
+};
 
 /** In-memory stand-in for the contract. */
 function fakeChain() {
@@ -23,9 +30,9 @@ function fakeChain() {
   const client = {
     getNetworkConfig: vi.fn(() => ({ network: Network.TESTNET, contractId: CONTRACT })),
     getPoolInfo: vi.fn(async () => ({
-      token: 'CTOKEN', denomination: '1000000000', depositCount: leaves.length, root: '0x0',
+      token: 'CTOKEN', denomination: '1000000000', depositCount: leaves.length, root: await rootOf(leaves),
     })),
-    getLeaves: vi.fn(async () => [...leaves]),
+    getLeaves: vi.fn(async (start = 0) => leaves.slice(start)),
     isNullifierSpent: vi.fn(async (n: string) => spent.has(n)),
     getTransactionStatus: vi.fn(async (hash: string) => statuses[hash] ?? 'SUCCESS'),
     deposit: vi.fn(async (c: string) => {
@@ -92,6 +99,37 @@ describe('ShieldedPool', () => {
     expect(reloaded.getNotes()[0].status).toBe('available');
   });
 
+  it('drops the note when the deposit was never submitted', async () => {
+    chain.client.deposit.mockRejectedValueOnce(new NotSubmittedError('declined'));
+    const pool = await open();
+    await expect(pool.deposit()).rejects.toThrow('declined');
+    expect(pool.getNotes()).toEqual([]);
+  });
+
+  it('expires lost transactions but trusts the contract over RPC history', async () => {
+    vi.useFakeTimers();
+    try {
+      const pool = await open();
+      const { note } = await pool.deposit();
+      const { note: lost } = await pool.deposit();
+      chain.leaves.pop();
+      chain.client.getTransactionStatus.mockResolvedValue('NOT_FOUND');
+      await pool.refresh();
+      const byId = (c: string) => pool.getNotes().find((n) => n.commitment === c)!.status;
+      expect(byId(note.commitment)).toBe('available');
+      expect(byId(lost.commitment)).toBe('unconfirmed');
+      vi.advanceTimersByTime(6 * 60_000);
+      await pool.refresh();
+      expect(byId(lost.commitment)).toBe('failed');
+      expect(pool.getTransactions().map((t) => t.status).sort()).toEqual(['confirmed', 'failed']);
+      chain.leaves.push(lost.commitment);
+      await pool.refresh();
+      expect(byId(lost.commitment)).toBe('available');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('makes a note available again when its withdrawal fails', async () => {
     const pool = await open();
     const { note } = await pool.deposit();
@@ -113,6 +151,32 @@ describe('ShieldedPool', () => {
     const bare = new ShieldedPool(chain.client as unknown as StellarClient, undefined, storage);
     await bare.initialize();
     await expect(bare.withdraw(note.commitment, recipient)).rejects.toThrow('No prover');
+  });
+
+  it('fetches only new commitments and recovers from a reset pool', async () => {
+    const pool = await open();
+    await pool.deposit();
+    await pool.refresh();
+    await pool.deposit();
+    await Promise.all([pool.refresh(), pool.refresh()]);
+    expect(chain.client.getLeaves.mock.calls.map(([start]) => start)).toEqual([0, 1]);
+    chain.leaves.splice(0, 2, '0x5', '0x6');
+    const { note } = await pool.deposit();
+    chain.leaves.splice(0, 3, note.commitment, '0x7');
+    await pool.withdraw(note.commitment, recipient);
+    const { merkleProof } = vi.mocked(prover.proveWithdrawal).mock.lastCall![0];
+    expect(merkleProof.root).toBe(await rootOf(chain.leaves));
+  });
+
+  it('withdraws through a relayer when configured', async () => {
+    const relayer = { withdraw: vi.fn(async () => 'relayed') };
+    const pool = new ShieldedPool(chain.client as unknown as StellarClient, prover, storage, relayer);
+    const { note } = await pool.deposit();
+    expect((await pool.withdraw(note.commitment, recipient)).txHash).toBe('relayed');
+    expect(relayer.withdraw).toHaveBeenCalledWith(
+      expect.objectContaining({ proof, nullifier: note.nullifier, recipient }),
+    );
+    expect(chain.client.withdraw).not.toHaveBeenCalled();
   });
 
   it('backs up and restores notes', async () => {

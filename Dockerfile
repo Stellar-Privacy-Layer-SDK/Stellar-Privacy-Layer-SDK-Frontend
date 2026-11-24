@@ -11,6 +11,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core-sdk/package.json packages/core-sdk/package.json
 COPY packages/dapp/package.json packages/dapp/package.json
+COPY packages/relayer/package.json packages/relayer/package.json
 
 # Install all workspace dependencies (deterministic via lockfile)
 RUN npm ci
@@ -21,11 +22,15 @@ ARG VITE_STELLAR_NETWORK=testnet
 ARG VITE_SOROBAN_RPC_URL=
 ARG VITE_CONTRACT_ID=
 ARG VITE_HORIZON_URL=
+ARG VITE_ZK_ARTIFACTS_URL=
+ARG VITE_RELAYER_URL=
 ARG VITE_DEBUG=false
 ENV VITE_STELLAR_NETWORK=$VITE_STELLAR_NETWORK \
     VITE_SOROBAN_RPC_URL=$VITE_SOROBAN_RPC_URL \
     VITE_CONTRACT_ID=$VITE_CONTRACT_ID \
     VITE_HORIZON_URL=$VITE_HORIZON_URL \
+    VITE_ZK_ARTIFACTS_URL=$VITE_ZK_ARTIFACTS_URL \
+    VITE_RELAYER_URL=$VITE_RELAYER_URL \
     VITE_DEBUG=$VITE_DEBUG
 
 # Copy the full source tree and build

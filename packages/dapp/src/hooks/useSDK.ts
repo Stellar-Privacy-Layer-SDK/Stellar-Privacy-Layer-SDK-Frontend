@@ -8,12 +8,15 @@ import {
   Network,
   createLocalStorageProvider,
   SnarkjsProver,
+  HttpRelayer,
+  type StorageProvider,
   resolveArtifactUrls,
 } from '@stellar-privacy/sdk';
-import { getNetworkConfig, getZkArtifactsBaseUrl } from '../env';
+import { getNetworkConfig, getRelayerUrl, getZkArtifactsBaseUrl } from '../env';
 
 const NETWORK_STORAGE_KEY = 'stellar-privacy:network';
 
+let storage: StorageProvider | null = null;
 let sdkInstance: PrivacySDK | null = null;
 let initPromise: Promise<void> | null = null;
 
@@ -24,13 +27,22 @@ function createProver(): SnarkjsProver | undefined {
   return new SnarkjsProver(resolveArtifactUrls(baseUrl));
 }
 
+/** Must be called before the SDK is first used (see UnlockGate). */
+export function setSDKStorage(provider: StorageProvider): void {
+  storage = provider;
+}
+
 function getSDK(): PrivacySDK {
   if (!sdkInstance) {
-    sdkInstance = new PrivacySDK({
+    const relayerUrl = getRelayerUrl();
+    const sdk: PrivacySDK = new PrivacySDK({
+      relayer: relayerUrl ? new HttpRelayer(relayerUrl) : undefined,
+      signer: (xdr, passphrase) => sdk.wallet.signTransaction(xdr, passphrase),
       network: getNetworkConfig(),
-      storageProvider: createLocalStorageProvider(),
+      storageProvider: storage ?? createLocalStorageProvider(),
       prover: createProver(),
     });
+    sdkInstance = sdk;
     initPromise = sdkInstance.initialize();
   }
   return sdkInstance;
@@ -65,7 +77,7 @@ export function useSDKReady(): boolean {
 
 export function useWallet() {
   const sdk = useSDK();
-  const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
+  const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(() => sdk.wallet.getWalletInfo());
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -6,7 +6,8 @@
   "description": "🔒 Stellar Privacy Layer — Confidential Transfers SDK",
   "workspaces": [
     "packages/core-sdk",
-    "packages/dapp"
+    "packages/dapp",
+    "packages/relayer"
   ],
   "engines": {
     "node": ">=22.12.0",
@@ -20,22 +21,24 @@
     "dev:sdk": "npm run dev -w packages/core-sdk",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "npm run typecheck --workspaces",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces",
     "test:sdk": "npm run test -w packages/core-sdk",
     "test:dapp": "npm run test -w packages/dapp",
-    "test:coverage": "npm run test:coverage --workspaces",
+    "test:coverage": "npm run test:coverage --workspaces --if-present && npm test -w packages/relayer",
     "audit": "npm audit --audit-level=high",
     "verify": "npm run lint && npm run typecheck && npm run test:coverage && npm run build",
-    "clean": "npm run clean --workspaces",
+    "clean": "npm run clean --workspaces --if-present",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "deploy": "bash scripts/deploy.sh up",
     "build:circuits": "node scripts/build-circuits.mjs",
     "build:contract": "cd packages/contract && cargo build --release --target wasm32v1-none",
-    "test:e2e": "node scripts/e2e.mjs",
-    "deploy:pool": "node scripts/deploy-pool.mjs"
+    "test:e2e": "node e2e/sdk.mjs",
+    "deploy:pool": "node scripts/deploy-pool.mjs",
+    "test:browser": "node e2e/browser.mjs",
+    "build:fixture": "node scripts/build-fixture.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -43,6 +46,7 @@
     "circom2": "0.2.22",
     "circomlib": "2.0.5",
     "eslint": "^10.8.0",
+    "playwright": "1.56.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.66.0"
   },

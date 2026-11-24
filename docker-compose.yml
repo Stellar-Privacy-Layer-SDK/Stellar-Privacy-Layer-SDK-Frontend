@@ -7,6 +7,8 @@ services:
         VITE_SOROBAN_RPC_URL: ${VITE_SOROBAN_RPC_URL:-}
         VITE_CONTRACT_ID: ${VITE_CONTRACT_ID:-}
         VITE_HORIZON_URL: ${VITE_HORIZON_URL:-}
+        VITE_ZK_ARTIFACTS_URL: ${VITE_ZK_ARTIFACTS_URL:-}
+        VITE_RELAYER_URL: ${VITE_RELAYER_URL:-}
         VITE_DEBUG: ${VITE_DEBUG:-false}
     image: stellar-privacy-layer:latest
     ports:

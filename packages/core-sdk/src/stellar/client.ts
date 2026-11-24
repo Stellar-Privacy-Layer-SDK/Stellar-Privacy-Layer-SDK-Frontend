@@ -4,7 +4,6 @@ import {
   xdr,
   Contract,
   TransactionBuilder,
-  Networks,
   scValToNative,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
@@ -14,6 +13,9 @@ import { NETWORK_CONFIGS } from './config.js';
 import { encodeGroth16Proof, fieldBytes } from './abi.js';
 import { toHex } from '../utils/encoding.js';
 import { logger } from '../utils/logger.js';
+
+/** The transaction definitely did not reach the network. */
+export class NotSubmittedError extends Error {}
 
 /** Signs a transaction envelope (base64 XDR) and returns the signed envelope. */
 export type TransactionSigner = (xdr: string, networkPassphrase: string) => Promise<string>;
@@ -149,8 +151,24 @@ export class StellarClient extends EventEmitter {
   }
 
   async sendTransaction(method: string, ...args: xdr.ScVal[]): Promise<string> {
-    const wallet = this.requireWallet();
+    const signed = await this.prepareAndSign(method, args).catch((error: unknown) => {
+      throw new NotSubmittedError(this.errorMessage(error), { cause: error });
+    });
+    const response = await this.rpc.sendTransaction(signed);
+    if (response.status === 'ERROR' || response.status === 'TRY_AGAIN_LATER') {
+      throw new NotSubmittedError(`Transaction rejected by the network: ${response.status}`);
+    }
+    logger.info('Transaction submitted', {
+      method,
+      network: this.config.network.network,
+      txHash: response.hash,
+      status: response.status,
+    });
+    return response.hash;
+  }
 
+  private async prepareAndSign(method: string, args: xdr.ScVal[]) {
+    this.requireWallet();
     const operation = this.getContract().call(method, ...args);
     const transaction = (await this.buildTransaction(operation)).build();
 
@@ -158,30 +176,10 @@ export class StellarClient extends EventEmitter {
     if (!rpc.Api.isSimulationSuccess(simulated)) {
       throw new Error(`Transaction simulation failed for method "${method}"`);
     }
-
-    const prepared = rpc.assembleTransaction(transaction, simulated);
-    const preparedXdr = prepared.build().toEnvelope().toXDR('base64');
-
-    const signedXdr = await this.signer(preparedXdr, this.config.network.networkPassphrase);
-
-    const signedTransaction = TransactionBuilder.fromXDR(
-      signedXdr,
-      this.config.network.networkPassphrase as Networks,
-    );
-
-    const sendResponse = await this.rpc.sendTransaction(signedTransaction);
-    if (sendResponse.status === 'ERROR' || sendResponse.status === 'TRY_AGAIN_LATER') {
-      throw new Error(`Transaction rejected by the network: ${sendResponse.status}`);
-    }
-    const txHash = sendResponse.hash;
-    logger.info('Transaction submitted', {
-      method,
-      network: this.config.network.network,
-      source: wallet.publicKey,
-      txHash,
-      status: sendResponse.status,
-    });
-    return txHash;
+    const prepared = rpc.assembleTransaction(transaction, simulated).build();
+    const { networkPassphrase } = this.config.network;
+    const signedXdr = await this.signer(prepared.toEnvelope().toXDR('base64'), networkPassphrase);
+    return TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
   }
 
   async getAccountBalance(publicKey: string): Promise<string> {
@@ -250,12 +248,12 @@ export class StellarClient extends EventEmitter {
     };
   }
 
-  /** Every commitment in the pool, in insertion order. */
-  async getLeaves(): Promise<string[]> {
+  /** Commitments from index `start` on, in insertion order. */
+  async getLeaves(start = 0): Promise<string[]> {
     const leaves: string[] = [];
     for (;;) {
       const page = scValToNative(
-        await this.callContract('leaves', xdr.ScVal.scvU32(leaves.length)),
+        await this.callContract('leaves', xdr.ScVal.scvU32(start + leaves.length)),
       ) as Uint8Array[];
       if (page.length === 0) return leaves;
       leaves.push(...page.map((leaf) => '0x' + toHex(leaf)));

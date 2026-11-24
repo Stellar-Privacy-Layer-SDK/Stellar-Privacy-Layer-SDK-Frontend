@@ -7,6 +7,7 @@ import { createLocalStorageProvider } from '../utils/storage.js';
 import type { StorageProvider } from '../types.js';
 
 const KEYS_CACHE_KEY = 'viewing_keys';
+const SECRETS_CACHE_KEY = 'viewing_key_secrets';
 
 export class ViewingKeyManager extends EventEmitter {
   private viewingKeys: Map<string, ViewingKey> = new Map();
@@ -25,6 +26,8 @@ export class ViewingKeyManager extends EventEmitter {
         const entries: [string, ViewingKey][] = JSON.parse(json);
         this.viewingKeys = new Map(entries);
       }
+      const secrets = this.storage.encrypted ? await this.storage.get(SECRETS_CACHE_KEY) : null;
+      if (secrets) this.keyPairs = new Map(JSON.parse(secrets));
     } catch {
       // corrupt persisted data is ignored — keys start empty
     }
@@ -33,6 +36,10 @@ export class ViewingKeyManager extends EventEmitter {
   private async persistState(): Promise<void> {
     try {
       await this.storage.set(KEYS_CACHE_KEY, JSON.stringify([...this.viewingKeys]));
+      // Private keys are only ever persisted encrypted.
+      if (this.storage.encrypted) {
+        await this.storage.set(SECRETS_CACHE_KEY, JSON.stringify([...this.keyPairs]));
+      }
     } catch {
       // persistence is best-effort
     }
