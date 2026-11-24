@@ -210,27 +210,35 @@ describe('StellarClient', () => {
     ).rejects.toThrow('simulation failed');
   });
 
-  it('returns 0 balance when the account lookup fails', async () => {
-    serverBehaviors.getAccount = () => { throw new Error('account not found'); };
-    const balance = await client.getAccountBalance('GA' + 'X'.repeat(54));
-    expect(balance).toBe('0');
-  });
+  describe('getAccountBalance', () => {
+    afterEach(() => vi.unstubAllGlobals());
 
-  it('returns 0 balance when account has no balance field', async () => {
-    serverBehaviors.getAccount = () => ({ accountId: () => 'GA' + 'X'.repeat(54) });
-    const balance = await client.getAccountBalance('GA' + 'X'.repeat(54));
-    expect(balance).toBe('0');
-    serverBehaviors.getAccount = () => ({ accountId: () => 'GA' + 'X'.repeat(54) });
-  });
-
-  it('reads the account balance when present', async () => {
-    serverBehaviors.getAccount = () => ({
-      balance: '123.456',
-      accountId: () => 'GA' + 'X'.repeat(54),
+    it('reads the native balance from Horizon', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          balances: [
+            { asset_type: 'credit_alphanum4', balance: '5.0' },
+            { asset_type: 'native', balance: '123.4560000' },
+          ],
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      expect(await client.getAccountBalance('GABC')).toBe('123.4560000');
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${client.getNetworkConfig().horizonUrl}/accounts/GABC`,
+      );
     });
-    const balance = await client.getAccountBalance('GA' + 'X'.repeat(54));
-    expect(balance).toBe('123.456');
-    serverBehaviors.getAccount = () => ({ accountId: () => 'GA' + 'X'.repeat(54) });
+
+    it('returns 0 without a native balance', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+      expect(await client.getAccountBalance('GABC')).toBe('0');
+    });
+
+    it('returns 0 when the account does not exist', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+      expect(await client.getAccountBalance('GABC')).toBe('0');
+    });
   });
 
   it('returns not_found when getTransactionStatus fails', async () => {

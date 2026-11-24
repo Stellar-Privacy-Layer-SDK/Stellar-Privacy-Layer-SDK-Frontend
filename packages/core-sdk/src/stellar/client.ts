@@ -182,8 +182,15 @@ export class StellarClient extends EventEmitter {
 
   async getAccountBalance(publicKey: string): Promise<string> {
     try {
-      const account = await this.rpc.getAccount(publicKey);
-      return (account as unknown as { balance?: string }).balance || '0';
+      // Soroban RPC accounts carry no balances; Horizon does.
+      const response = await fetch(
+        `${this.config.network.horizonUrl}/accounts/${encodeURIComponent(publicKey)}`,
+      );
+      if (!response.ok) throw new Error(`Horizon responded with ${response.status}`);
+      const account = (await response.json()) as {
+        balances?: { asset_type: string; balance: string }[];
+      };
+      return account.balances?.find((b) => b.asset_type === 'native')?.balance ?? '0';
     } catch (error) {
       logger.warn('Failed to fetch account balance', {
         publicKey,
