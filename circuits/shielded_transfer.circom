@@ -1,74 +1,45 @@
 /*
- * ShieldedTransfer — Groth16 circuit for the Stellar Privacy Layer.
+ * ShieldedDeposit: Groth16 circuit for creating a shielded commitment.
  *
  * Proves knowledge of `senderSecret` such that:
- *   commitment = Poseidon([senderSecret, recipientHash, amount, tokenHash])
- *   nullifier  = Poseidon([senderSecret, 0])
- * and that `commitment` is a member of the given Merkle tree `merkleRoot`.
+ *   commitment = H([senderSecret, recipient, amount, token])
+ *   nullifier  = H([senderSecret, 0])
  *
- * Public signals (in order, as produced by snarkjs):
- *   [ merkleRoot, commitmentOut, nullifierOut ]
+ * H is the SDK's `poseidonHash`: a width-3 Poseidon permutation absorbing two
+ * elements at a time, with the previous output carried in state[0].
  *
- * The SDK's SnarkjsProver reads the final two signals as the proven
- * commitment and nullifier, keeping them in sync with what gets committed
- * on-chain.
+ * Public signals (in order, as produced by snarkjs): [ commitment, nullifier ]
  *
- * Compile with `scripts/build-circuits.sh` (requires circom + snarkjs).
+ * Membership (withdrawal) is a separate statement and is not proven here.
  */
 pragma circom 2.1.6;
 
 include "circomlib/circuits/poseidon.circom";
 
-template MerkleLevel() {
-  signal input left;
-  signal input right;
-  signal output out;
+template ShieldedDeposit() {
+  signal input senderSecret;
+  signal input recipient;
+  signal input amount;
+  signal input token;
 
-  component h = Poseidon(2);
-  h.inputs[0] <== left;
-  h.inputs[1] <== right;
-  out <== h.out;
+  signal output commitment;
+  signal output nullifier;
+
+  component first = PoseidonEx(2, 1);
+  first.initialState <== 0;
+  first.inputs[0] <== senderSecret;
+  first.inputs[1] <== recipient;
+
+  component second = PoseidonEx(2, 1);
+  second.initialState <== first.out[0];
+  second.inputs[0] <== amount;
+  second.inputs[1] <== token;
+  commitment <== second.out[0];
+
+  component nullifierHash = Poseidon(2);
+  nullifierHash.inputs[0] <== senderSecret;
+  nullifierHash.inputs[1] <== 0;
+  nullifier <== nullifierHash.out;
 }
 
-template ShieldedTransfer(nLevels) {
-  signal private input senderSecret;
-  signal private input recipientHash;
-  signal private input amount;
-  signal private input tokenHash;
-  signal private input commitment;
-  signal private input nullifier;
-
-  signal input merkleRoot;
-  signal private input merklePath[nLevels];
-
-  signal output commitmentOut;
-  signal output nullifierOut;
-
-  // commitment === Poseidon([senderSecret, recipientHash, amount, tokenHash])
-  component commitmentPoseidon = Poseidon(4);
-  commitmentPoseidon.inputs[0] <== senderSecret;
-  commitmentPoseidon.inputs[1] <== recipientHash;
-  commitmentPoseidon.inputs[2] <== amount;
-  commitmentPoseidon.inputs[3] <== tokenHash;
-  commitmentOut <== commitmentPoseidon.out;
-  commitment === commitmentOut;
-
-  // nullifier === Poseidon([senderSecret, 0])
-  component nullifierPoseidon = Poseidon(2);
-  nullifierPoseidon.inputs[0] <== senderSecret;
-  nullifierPoseidon.inputs[1] <== 0;
-  nullifierOut <== nullifierPoseidon.out;
-  nullifier === nullifierOut;
-
-  // Merkle membership: walk `merklePath` from the commitment to the root.
-  signal current <== commitment;
-  for (var i = 0; i < nLevels; i++) {
-    component level = MerkleLevel();
-    level.left <== current;
-    level.right <== merklePath[i];
-    current <== level.out;
-  }
-  current === merkleRoot;
-}
-
-component main { public [merkleRoot] } = ShieldedTransfer(32);
+component main = ShieldedDeposit();
