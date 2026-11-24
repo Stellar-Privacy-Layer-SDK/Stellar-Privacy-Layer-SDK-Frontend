@@ -136,4 +136,17 @@ describe('ViewingKeyManager', () => {
     expect(priv).toBeTruthy();
     expect(priv).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it('persists private keys only in encrypted storage', async () => {
+    const plain = createMemoryStorageProvider();
+    await new ViewingKeyManager(plain).createViewingKey('A');
+    expect(await plain.get('viewing_key_secrets')).toBeNull();
+
+    const storage = { ...createMemoryStorageProvider(), encrypted: true };
+    const first = new ViewingKeyManager(storage);
+    const key = await first.createViewingKey('B');
+    const second = new ViewingKeyManager(storage);
+    await second.loadPersistedState();
+    expect(second.getPrivateKey(key.id)).toBe(first.getPrivateKey(key.id));
+  });
 });
