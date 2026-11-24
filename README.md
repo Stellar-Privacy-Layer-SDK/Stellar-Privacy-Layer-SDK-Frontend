@@ -1,21 +1,30 @@
-# 🔒 Stellar Privacy Layer — Confidential Transfers SDK
+# Stellar Privacy Layer — Confidential Transfers SDK
 
 A developer-friendly SDK and reference dApp for **confidential asset transfers on Stellar** using Protocol 25 ZK primitives. It enables client-side transaction privacy with institutional compliance through selective-disclosure viewing keys.
-
-> **The "hug and ripples" concept:** a shielded transfer is like a hug — the act itself is felt (the shielded pool grows, a commitment ripples onto the ledger) but the details (who, how much, to whom) stay private. Every shielded transaction sends out ripples of privacy across the network.
 
 ---
 
 ## Features
 
-- **Shielded Transfers** — Deposit and withdraw assets privately using zero-knowledge proofs
-- **Real Poseidon Hashing** — BN254 field Poseidon hash via `@noble/curves` (not a SHA-256 placeholder)
-- **Groth16 Proofs** — Simulated prover with Fiat–Shamir verification for development; real `snarkjs` prover with hosted-circuit artifact loading for production (see [Production ZK Prover](#production-zk-prover))
-- **Soroban Verifier Contract** — Rust reference implementation using Protocol 25 built-in ZK ops (BN254 pairing precompile)
-- **Selective Disclosure** — Compliance-friendly viewing keys with scoped access (amount-only, recipient-only, full)
-- **Freighter Wallet** — Full integration with the Freighter API for Stellar wallet connectivity
-- **Persistence** — State preserved across sessions via pluggable storage providers (`localStorage`, memory)
-- **Multi-Network** — Testnet, Mainnet, Futurenet, Sandbox with one-line switching
+- **Shielded deposits** with client-side Groth16 proofs (circom + snarkjs)
+- **Poseidon over BN254**, checked against circomlib vectors and the circuit
+- **Soroban verifier contract** using the Protocol 25 BN254 pairing host functions
+- **Selective disclosure** with scoped, Ed25519-signed payloads that stay off-chain
+- **Viewing keys** encrypted to the recipient's Stellar account key
+- **Reference dApp** for deposits, withdrawals, history and compliance (Freighter)
+
+## Status and limitations
+
+This project is experimental and unaudited. Do not use it with real assets.
+
+- `SimulatedProver` is the default for development. Its proofs are forgeable, and
+  the SDK refuses to use it on the public network.
+- Withdrawals work only with the simulated prover: there is no membership circuit
+  yet, and the contract's `withdraw` enforces one-time nullifiers but does not
+  check a proof.
+- Disclosure proofs also need a circuit that does not exist yet.
+- The contract records amounts in plaintext and does not transfer tokens.
+- Private viewing keys live in memory and are lost on reload.
 
 ---
 
@@ -23,17 +32,17 @@ A developer-friendly SDK and reference dApp for **confidential asset transfers o
 
 ```
 packages/
-  core-sdk/       — SDK library (TypeScript, 169 tests / 14 suites)
+  core-sdk/       — SDK library (TypeScript)
     src/
       privacy/    — ShieldedTransfer, ProofGenerator, SimulatedProver, SnarkjsProver, Verifier
       stellar/    — StellarClient (Soroban RPC), WalletManager (Freighter API)
       compliance/ — ViewingKeyManager, SelectiveDisclosure
       utils/      — Poseidon hash, encoding, storage providers, structured logger
       e2e/        — Full end-to-end SDK flow test
-  dapp/           — React reference dApp (Vite + Tailwind, 71 tests / 16 suites)
-  contract/       — Soroban verifier contract (Rust, 8 tests)
-circuits/           — circom 2 circuit for shielded transfers (commitment/nullifier)
-scripts/            — build-circuits.sh (artifact generation), deploy.sh
+  dapp/           — React reference dApp (Vite + Tailwind)
+  contract/       — Soroban verifier contract (Rust)
+circuits/           — circom 2 circuit for shielded deposits (commitment/nullifier)
+scripts/            — build-circuits.mjs (artifact generation), deploy.sh
 ```
 
 ---
@@ -88,7 +97,7 @@ cp .env.example .env
 | `npm run build`                | Build SDK + dApp for production                |
 | `npm run lint`                 | ESLint over the whole repo                     |
 | `npm run typecheck`            | TypeScript strict-mode check (both packages)   |
-| `npm test`                     | Run all unit + integration tests (240 tests)   |
+| `npm test`                     | Run all unit + integration tests            |
 | `npm run test:coverage`        | Run tests with coverage (80%+ thresholds)      |
 | `npm audit`                    | Dependency vulnerability scan                  |
 | `npm run verify`               | **Full gate:** lint → typecheck → coverage → build |
@@ -100,10 +109,6 @@ cp .env.example .env
 ## Testing & Coverage
 
 Both packages use **Vitest** with enforced coverage thresholds (CI fails below them):
-
-- **core-sdk:** 169 tests, **~94% line coverage** (statements/functions/branches ≥ 80/75)
-- **dapp:** 71 tests, **~91% line coverage**
-- **contract:** 8 Rust unit tests (deposit, double-spend, viewing-key lifecycle, proof verification)
 
 ```bash
 npm run test:coverage        # runs everything and enforces thresholds
@@ -154,11 +159,11 @@ The Rust verifier contract lives in `packages/contract/`:
 
 ```bash
 cd packages/contract
-cargo test        # run the 8 unit tests
+cargo test        # run the unit tests
 cargo build       # build the cdylib
 ```
 
-To deploy on a live network you'll need the `soroban-cli` toolchain (see the [Soroban docs](https://soroban.stellar.org/docs)). The contract exposes `deposit`, `withdraw`, `verify_proof`, `set_vkey`, `set_viewing_key`, `revoke_viewing_key`, and `is_nullifier_spent`.
+To deploy on a live network you'll need the `soroban-cli` toolchain (see the [Soroban docs](https://soroban.stellar.org/docs)). The constructor takes an `admin` address, which alone can manage the verification and viewing keys. The contract exposes `deposit`, `withdraw`, `verify_proof`, `set_vkey`, `set_viewing_key`, `revoke_viewing_key`, and `is_nullifier_spent`.
 
 ---
 
@@ -171,6 +176,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 3. **test-dapp** — dApp tests with coverage thresholds
 4. **build** — production build of both packages (gated on 1–3)
 5. **contract** — `cargo test` for the Rust verifier (with cached deps)
+6. **circuit** — compiles the circuit and verifies a real proof
 
 All checks must pass before merge. Locally, `npm run verify` replicates the full gate.
 
@@ -182,18 +188,18 @@ Additionally, `.github/workflows/deploy.yml` deploys the dApp to **Vercel** on e
 
 Out of the box the SDK uses the **simulated prover** (dev-only, no security). To generate **real Groth16 proofs**:
 
-1. **Build the circuit artifacts** (requires `circom` + `snarkjs`):
+1. **Build the circuit artifacts** (circom is installed by npm; takes a few minutes):
 
    ```bash
-   ./scripts/build-circuits.sh
+   npm run build:circuits
    ```
 
-   This compiles [`circuits/shielded_transfer.circom`](circuits/shielded_transfer.circom) and produces `shielded_transfer.wasm`, `shielded_transfer_final.zkey`, and `verification_key.json` in `./artifacts`.
+   This writes `shielded_transfer.wasm`, `shielded_transfer_final.zkey` and `verification_key.json` to `./artifacts`.
 
-   > ⚠️ The bundled ceremony uses a deterministic dev beacon. For mainnet you MUST use a public trusted-setup ceremony.
+   > The setup is a single local contribution. Real assets need a public multi-party ceremony.
 
 2. **Host the artifacts** at a stable URL (GitHub Release, CDN, etc.).
-3. **Point the dApp at them** — set `VITE_ZK_ARTIFACTS_URL=<base-url>` in your build env. The dApp then constructs a `SnarkjsProver` that fetches the artifacts and produces real proofs, with the simulated prover as automatic fallback when the var is unset.
+3. **Point the dApp at them** — set `VITE_ZK_ARTIFACTS_URL=<base-url>` in your build env. The dApp then constructs a `SnarkjsProver` that fetches the artifacts and produces real proofs, and uses the simulated prover when the var is unset.
 
 Programmatic usage:
 
@@ -207,7 +213,7 @@ const sdk = new PrivacySDK({
 await sdk.initialize();
 ```
 
-> **Note:** `SnarkjsProver` returns the circuit's public signals verbatim (snarkjs emits **decimal** field strings), while `SimulatedProver` returns hex strings. Any contract/verifier integration must normalize formats — see the public-input layout documented in `circuits/shielded_transfer.circom`.
+Public inputs are snarkjs decimal strings; the client encodes them, and the proof, for the contract.
 
 ---
 
@@ -231,10 +237,10 @@ docker compose up -d --build        # or: npm run docker:up
 ## Security Notes
 
 - No secrets in code — all configuration flows through git-ignored env vars with `.env.example` as the documented template
-- Zero known npm vulnerabilities (`npm audit` is clean and enforced in CI)
-- Contracts validate inputs (checksum-valid Stellar keys, amount ranges, memo truncation)
+- `npm audit` runs in CI and fails on high-severity advisories
+- The SDK validates inputs (checksum-valid Stellar keys, amount ranges)
 - Production security headers + immutable asset caching baked into the nginx config
-- ⚠️ The **simulated prover** is for development/demo only. For production-grade privacy, generate real Groth16 artifacts with `scripts/build-circuits.sh` (or a public ceremony), host them, set `VITE_ZK_ARTIFACTS_URL`, and deploy a verifier contract — see [Production ZK Prover](#production-zk-prover).
+- ⚠️ The **simulated prover** is for development/demo only. For production-grade privacy, generate real Groth16 artifacts with `npm run build:circuits` (or a public ceremony), host them, set `VITE_ZK_ARTIFACTS_URL`, and deploy a verifier contract — see [Production ZK Prover](#production-zk-prover).
 
 ---
 
