@@ -7,6 +7,7 @@ import {
   scValToNative,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
+import { signTransaction } from '@stellar/freighter-api';
 import { EventEmitter } from 'events';
 import { Network, NetworkConfig, WalletInfo, SDKConfig } from '../types';
 import { NETWORK_CONFIGS, PRIVACY_CONTRACT_METHODS } from './config';
@@ -150,7 +151,6 @@ export class StellarClient extends EventEmitter {
     const prepared = rpc.assembleTransaction(transaction, simulated);
     const preparedXdr = prepared.build().toEnvelope().toXDR('base64');
 
-    const { signTransaction } = await import('@stellar/freighter-api');
     const signedResult = await signTransaction(preparedXdr, {
       networkPassphrase: this.config.network.networkPassphrase,
     });

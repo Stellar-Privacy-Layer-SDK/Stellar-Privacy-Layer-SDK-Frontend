@@ -44,6 +44,7 @@ export class WalletManager extends EventEmitter {
 
   /** Keep the wallet's network in sync when the client switches networks. */
   setNetwork(network: Network): void {
+    if (network === this.config.network.network) return;
     this.config.network = NETWORK_CONFIGS[network];
   }
 
