@@ -37,7 +37,7 @@ export function Dashboard() {
   const stats = [
     { label: 'Total Shielded Transactions', value: transactions.length, icon: Lock, color: 'text-privacy-400' },
     { label: 'Active Viewing Keys', value: activeKeys.length, icon: Eye, color: 'text-stellar-400' },
-    { label: 'Unspent Notes', value: notes.filter((n) => n.status !== 'spent').length, icon: Coins, color: 'text-yellow-400' },
+    { label: 'Unspent Notes', value: notes.filter((n) => n.status !== 'spent' && n.status !== 'failed').length, icon: Coins, color: 'text-yellow-400' },
   ];
 
   return (

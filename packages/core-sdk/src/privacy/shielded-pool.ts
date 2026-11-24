@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { recipientField } from '../stellar/abi.js';
-import type { StellarClient } from '../stellar/client.js';
+import { NotSubmittedError, type StellarClient } from '../stellar/client.js';
 import type { PoolInfo, ShieldedTransaction, StorageProvider } from '../types.js';
 import { generateRandomField } from '../utils/crypto.js';
 import { formatUnits, isValidPublicKey } from '../utils/encoding.js';
@@ -13,6 +13,8 @@ import type { Prover } from './prover.js';
 const NOTES_KEY = 'notes';
 const TRANSACTIONS_KEY = 'transactions';
 const TOKEN_DECIMALS = 7;
+/** Transactions are valid for 30 seconds; after this they cannot succeed. */
+const EXPIRY_MS = 5 * 60_000;
 
 /**
  * Deposits to and withdrawals from the shielded pool contract.
@@ -54,6 +56,10 @@ export class ShieldedPool extends EventEmitter {
     await this.storage.set(NOTES_KEY, JSON.stringify(this.notes));
     await this.storage.set(TRANSACTIONS_KEY, JSON.stringify(this.transactions));
     this.emit('change');
+  }
+
+  private syncLeaves(): Promise<string[]> {
+    return this.client.getLeaves();
   }
 
   getInfo(): Promise<PoolInfo> {
@@ -106,8 +112,17 @@ export class ShieldedPool extends EventEmitter {
     const note = await this.createNote(await generateRandomField(), 'unconfirmed');
     this.notes.push(note);
     await this.save();
-    // On failure the note stays: the transaction may still have been accepted.
-    const txHash = await this.client.deposit(note.commitment);
+    let txHash: string;
+    try {
+      txHash = await this.client.deposit(note.commitment);
+    } catch (error) {
+      // Otherwise the transaction may have been accepted: refresh() decides.
+      if (error instanceof NotSubmittedError) {
+        this.notes = this.notes.filter((n) => n !== note);
+        await this.save();
+      }
+      throw error;
+    }
     this.record('deposit', note, txHash);
     await this.save();
     return { txHash, note };
@@ -123,7 +138,7 @@ export class ShieldedPool extends EventEmitter {
     }
     if (!this.prover) throw new Error('No prover configured');
 
-    const leaves = await this.client.getLeaves();
+    const leaves = await this.syncLeaves();
     const index = leaves.indexOf(note.commitment);
     if (index === -1) throw new Error('The deposit is not confirmed on-chain yet');
 
@@ -140,27 +155,43 @@ export class ShieldedPool extends EventEmitter {
     return { txHash };
   }
 
-  /** Reconciles notes and pending transactions with the network. */
+  /**
+   * Reconciles notes and pending transactions with the network. The contract's
+   * state decides; RPC history only lasts about a day.
+   */
   async refresh(): Promise<void> {
     const before = JSON.stringify([this.notes, this.transactions]);
-    for (const tx of this.transactions.filter((t) => t.status === 'pending')) {
-      const status = await this.client.getTransactionStatus(tx.txHash);
-      if (status === 'SUCCESS') tx.status = 'confirmed';
-      else if (status === 'FAILED') tx.status = 'failed';
-    }
-    const open = this.getNotes().filter((n) => n.status !== 'spent');
-    const leaves = open.some((n) => n.status === 'unconfirmed')
-      ? new Set(await this.client.getLeaves())
-      : new Set<string>();
+    const expired = (timestamp: number) => Date.now() - timestamp > EXPIRY_MS;
+    const notes = this.getNotes();
+    const unsettled = new Set(
+      this.transactions.filter((t) => t.status === 'pending').map((t) => t.commitmentHash),
+    );
+    const open = notes.filter((n) => n.status !== 'spent' || unsettled.has(n.commitment));
+    const inPool = open.length > 0 ? new Set(await this.syncLeaves()) : new Set<string>();
+
     for (const note of open) {
-      if (note.status === 'unconfirmed' && leaves.has(note.commitment)) note.status = 'available';
-      if (note.status !== 'unconfirmed' && (await this.client.isNullifierSpent(note.nullifier))) {
-        note.status = 'spent';
-      } else if (note.status === 'spending') {
-        const last = this.transactions.filter(
-          (t) => t.type === 'withdrawal' && t.nullifier === note.nullifier,
-        ).at(-1);
-        if (last?.status === 'failed') note.status = 'available';
+      const deposited = inPool.has(note.commitment);
+      const spent = deposited && (await this.client.isNullifierSpent(note.nullifier));
+      for (const tx of this.transactions) {
+        if (tx.commitmentHash !== note.commitment || tx.status !== 'pending') continue;
+        if (tx.type === 'deposit' ? deposited : spent) {
+          tx.status = 'confirmed';
+          continue;
+        }
+        const status = await this.client.getTransactionStatus(tx.txHash);
+        if (status === 'FAILED' || (status === 'NOT_FOUND' && expired(tx.timestamp))) {
+          tx.status = 'failed';
+        }
+      }
+      if (spent) note.status = 'spent';
+      else if (!deposited) {
+        note.status = expired(note.timestamp) ? 'failed' : 'unconfirmed';
+      } else {
+        const withdrawing = this.transactions.some(
+          (t) =>
+            t.type === 'withdrawal' && t.commitmentHash === note.commitment && t.status === 'pending',
+        );
+        note.status = withdrawing ? 'spending' : 'available';
       }
     }
     if (JSON.stringify([this.notes, this.transactions]) !== before) await this.save();

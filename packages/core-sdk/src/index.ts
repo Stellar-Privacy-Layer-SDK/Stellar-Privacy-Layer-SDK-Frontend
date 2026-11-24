@@ -7,7 +7,7 @@ import { setLogLevel } from './utils/logger.js';
 import type { Prover } from './privacy/prover.js';
 import type { NetworkConfig, StorageProvider, LogLevel } from './types.js';
 
-export { StellarClient, type TransactionSigner } from './stellar/client.js';
+export { StellarClient, NotSubmittedError, type TransactionSigner } from './stellar/client.js';
 export { WalletManager } from './stellar/wallet.js';
 export {
   NETWORK_CONFIGS,

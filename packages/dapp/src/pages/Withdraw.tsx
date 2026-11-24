@@ -8,7 +8,7 @@ import { toast } from '../components/ui/Toast';
 export function Withdraw() {
   const { walletInfo } = useWallet();
   const { notes, isProcessing, error, withdraw, importNote } = usePool();
-  const spendable = notes.filter((n) => n.status !== 'spent' && n.status !== 'spending');
+  const spendable = notes.filter((n) => n.status === 'available' || n.status === 'unconfirmed');
   const [backup, setBackup] = useState('');
   const navigate = useNavigate();
   const [selected, setSelected] = useState('');

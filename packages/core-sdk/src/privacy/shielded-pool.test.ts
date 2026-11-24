@@ -6,7 +6,7 @@ import { ShieldedPool } from './shielded-pool.js';
 import { decodeNote } from './note.js';
 import { SnarkjsProver } from './snarkjs-prover.js';
 import type { Prover } from './prover.js';
-import type { StellarClient } from '../stellar/client.js';
+import { NotSubmittedError, type StellarClient } from '../stellar/client.js';
 import { createMemoryStorageProvider } from '../utils/storage.js';
 import { Network, type ZKProof } from '../types.js';
 
@@ -90,6 +90,37 @@ describe('ShieldedPool', () => {
     const reloaded = await open();
     await reloaded.refresh();
     expect(reloaded.getNotes()[0].status).toBe('available');
+  });
+
+  it('drops the note when the deposit was never submitted', async () => {
+    chain.client.deposit.mockRejectedValueOnce(new NotSubmittedError('declined'));
+    const pool = await open();
+    await expect(pool.deposit()).rejects.toThrow('declined');
+    expect(pool.getNotes()).toEqual([]);
+  });
+
+  it('expires lost transactions but trusts the contract over RPC history', async () => {
+    vi.useFakeTimers();
+    try {
+      const pool = await open();
+      const { note } = await pool.deposit();
+      const { note: lost } = await pool.deposit();
+      chain.leaves.pop();
+      chain.client.getTransactionStatus.mockResolvedValue('NOT_FOUND');
+      await pool.refresh();
+      const byId = (c: string) => pool.getNotes().find((n) => n.commitment === c)!.status;
+      expect(byId(note.commitment)).toBe('available');
+      expect(byId(lost.commitment)).toBe('unconfirmed');
+      vi.advanceTimersByTime(6 * 60_000);
+      await pool.refresh();
+      expect(byId(lost.commitment)).toBe('failed');
+      expect(pool.getTransactions().map((t) => t.status).sort()).toEqual(['confirmed', 'failed']);
+      chain.leaves.push(lost.commitment);
+      await pool.refresh();
+      expect(byId(lost.commitment)).toBe('available');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('makes a note available again when its withdrawal fails', async () => {
