@@ -65,8 +65,8 @@ export class SelectiveDisclosure extends EventEmitter {
 
       const disclosureProof = await this.proofGenerator.generateDisclosureProof(
         tx.commitmentHash,
-        tx.amount,
-        tx.recipient,
+        sanitizedAmount ?? '',
+        sanitizedRecipient ?? '',
         request.regulatorPublicKey,
       );
 

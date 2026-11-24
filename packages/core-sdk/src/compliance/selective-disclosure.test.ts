@@ -152,6 +152,13 @@ describe('SelectiveDisclosure', () => {
     expect(valid).toBe(true);
   });
 
+  it.each(['amount-only', 'recipient-only'] as const)('verifies %s disclosures', async (scope) => {
+    const regulator = 'GA' + 'P'.repeat(54);
+    const id = await sd.requestDisclosure({ regulatorPublicKey: regulator, scope, reason: 'Test' });
+    const [payload] = await sd.approveDisclosure(id, [makeTx()]);
+    expect(await sd.verifyDisclosure(payload, regulator)).toBe(true);
+  });
+
   it('verifies signed payloads using the viewing key signature', async () => {
     const regulator = 'GA' + 'W'.repeat(54);
     await vk.grantViewingKey(regulator, 'full');
