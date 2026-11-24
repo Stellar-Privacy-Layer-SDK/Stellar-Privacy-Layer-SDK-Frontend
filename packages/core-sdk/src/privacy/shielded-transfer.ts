@@ -187,6 +187,10 @@ export class ShieldedTransfer {
     if (!isValidAmount(amount)) {
       throw new Error('Invalid amount: must be a positive number');
     }
+    // No change commitments yet: a withdrawal spends the whole commitment.
+    if (amount !== commitment.amount) {
+      throw new Error(`Invalid amount: must equal the deposited amount (${commitment.amount})`);
+    }
 
     // The nullifier is fixed at deposit time. Deriving it from the recipient
     // would let one commitment be spent once per recipient.

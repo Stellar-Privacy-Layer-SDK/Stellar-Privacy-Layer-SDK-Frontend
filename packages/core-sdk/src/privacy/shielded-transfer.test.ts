@@ -155,6 +155,13 @@ describe('ShieldedTransfer', () => {
       expect(await transfer.getCommitment(deposit.commitmentHash)).toBeUndefined();
     });
 
+    it('rejects amounts that differ from the deposit', async () => {
+      const deposit = await transfer.deposit({ amount: '20', token: 'USDC', recipient: KEY() });
+      await expect(transfer.withdraw(deposit.commitmentHash, KEY(), '2000')).rejects.toThrow(
+        'must equal the deposited amount',
+      );
+    });
+
     it('rejects invalid withdraw recipients', async () => {
       const deposit = await transfer.deposit({
         amount: '15', token: 'USDC', recipient: KEY(),
