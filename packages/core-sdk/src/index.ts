@@ -17,7 +17,7 @@ export {
   resolveNetworkConfig,
   type NetworkOverrides,
 } from './stellar/config';
-export { ShieldedTransfer } from './privacy/shielded-transfer';
+export { ShieldedTransfer, type ShieldedTransferOptions } from './privacy/shielded-transfer';
 export { ProofGenerator } from './privacy/proof-generator';
 export { ProofVerifier } from './privacy/verifier';
 export { ViewingKeyManager } from './compliance/viewing-keys';
@@ -52,6 +52,8 @@ export interface PrivacySDKOptions {
    * for production-grade proofs.
    */
   prover?: Prover;
+  /** Demo mode: fake a transaction hash when submission fails. Defaults to false. */
+  simulateOnFailure?: boolean;
 }
 
 /**
@@ -68,7 +70,7 @@ export class PrivacySDK {
   public selectiveDisclosure: SelectiveDisclosure;
 
   constructor(options: PrivacySDKOptions = {}) {
-    const { network, storageProvider, logLevel, prover } = options;
+    const { network, storageProvider, logLevel, prover, simulateOnFailure } = options;
 
     if (logLevel) setLogLevel(logLevel);
 
@@ -79,6 +81,7 @@ export class PrivacySDK {
       this.client,
       storageProvider,
       this.proofGenerator,
+      { simulateOnFailure },
     );
     this.proofVerifier = new ProofVerifier(this.client);
     this.viewingKeys = new ViewingKeyManager(storageProvider);

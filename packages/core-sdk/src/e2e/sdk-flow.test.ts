@@ -37,7 +37,7 @@ describe('PrivacySDK — Full Flow', () => {
   let sdk: PrivacySDK;
 
   beforeAll(async () => {
-    sdk = new PrivacySDK({ storageProvider: createMemoryStorageProvider() });
+    sdk = new PrivacySDK({ simulateOnFailure: true, storageProvider: createMemoryStorageProvider() });
     await sdk.initialize();
     sdk.client.connectWallet('GA' + 'M'.repeat(54), Network.TESTNET);
     sdk.client.setContractId(validContractId);
@@ -92,11 +92,11 @@ describe('PrivacySDK — Full Flow', () => {
 
   it('preserves state across re-initialization', async () => {
     const storage = createMemoryStorageProvider();
-    const sdk1 = new PrivacySDK({ storageProvider: storage });
+    const sdk1 = new PrivacySDK({ simulateOnFailure: true, storageProvider: storage });
     await sdk1.initialize();
     await sdk1.viewingKeys.createViewingKey('Persist Test', 'full');
 
-    const sdk2 = new PrivacySDK({ storageProvider: storage });
+    const sdk2 = new PrivacySDK({ simulateOnFailure: true, storageProvider: storage });
     await sdk2.initialize();
     const keys = sdk2.viewingKeys.getAllViewingKeys();
     expect(keys.length).toBeGreaterThanOrEqual(1);
@@ -131,7 +131,7 @@ describe('PrivacySDK — Full Flow', () => {
   });
 
   it('accepts network and logLevel options', async () => {
-    const sdk2 = new PrivacySDK({
+    const sdk2 = new PrivacySDK({ simulateOnFailure: true,
       network: NETWORK_CONFIGS[Network.FUTURENET],
       logLevel: 'debug',
       storageProvider: createMemoryStorageProvider(),

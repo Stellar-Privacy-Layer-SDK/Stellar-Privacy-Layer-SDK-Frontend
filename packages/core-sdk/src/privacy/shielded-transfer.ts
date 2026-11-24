@@ -17,6 +17,14 @@ const COMMITMENT_CACHE_KEY = 'commitments';
 
 type EventHandler = (...args: unknown[]) => void;
 
+export interface ShieldedTransferOptions {
+  /**
+   * Substitute a `simulated_…` hash when a transaction cannot be submitted.
+   * For demos and tests only: nothing reaches the network.
+   */
+  simulateOnFailure?: boolean;
+}
+
 export class ShieldedTransfer {
   private client: StellarClient;
   private proofGenerator: ProofGenerator;
@@ -25,7 +33,12 @@ export class ShieldedTransfer {
   private listeners: Map<string, Set<EventHandler>> = new Map();
   private storage: StorageProvider;
 
-  constructor(client: StellarClient, storage?: StorageProvider, proofGenerator?: ProofGenerator) {
+  constructor(
+    client: StellarClient,
+    storage?: StorageProvider,
+    proofGenerator?: ProofGenerator,
+    private options: ShieldedTransferOptions = {},
+  ) {
     this.client = client;
     this.proofGenerator = proofGenerator ?? new ProofGenerator();
     this.storage = storage ?? createLocalStorageProvider();
@@ -118,8 +131,7 @@ export class ShieldedTransfer {
           params.token,
         );
       } catch (error) {
-        // Off-chain / demo mode: simulate the transaction so the SDK remains
-        // usable without a live network.
+        if (!this.options.simulateOnFailure) throw error;
         txHash = 'simulated_' + commitmentHash.slice(2, 18);
         logger.warn('Deposit transaction failed — simulated tx hash used', {
           error: error instanceof Error ? error.message : String(error),
@@ -238,6 +250,7 @@ export class ShieldedTransfer {
         JSON.stringify(withdrawalProof),
       );
     } catch (error) {
+      if (!this.options.simulateOnFailure) throw error;
       txHash = 'simulated_withdraw_' + commitmentHash.slice(2, 18);
       logger.warn('Withdraw transaction failed — simulated tx hash used', {
         error: error instanceof Error ? error.message : String(error),

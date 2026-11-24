@@ -42,7 +42,9 @@ describe('ShieldedTransfer', () => {
     client = new StellarClient();
     client.connectWallet('GA' + 'X'.repeat(54));
     client.setContractId(validContractId);
-    transfer = new ShieldedTransfer(client, createMemoryStorageProvider());
+    transfer = new ShieldedTransfer(client, createMemoryStorageProvider(), undefined, {
+      simulateOnFailure: true,
+    });
     await transfer.initialize();
   });
 
@@ -98,14 +100,26 @@ describe('ShieldedTransfer', () => {
 
   it('restores state from storage', async () => {
     const storage = createMemoryStorageProvider();
-    const t1 = new ShieldedTransfer(client, storage);
+    const t1 = new ShieldedTransfer(client, storage, undefined, { simulateOnFailure: true });
     await t1.initialize();
     await t1.deposit({ amount: '42', token: 'USDC', recipient: KEY() });
 
-    const t2 = new ShieldedTransfer(client, storage);
+    const t2 = new ShieldedTransfer(client, storage, undefined, { simulateOnFailure: true });
     await t2.initialize();
     const history = await t2.getTransactionHistory();
     expect(history.some((tx) => tx.amount === '42')).toBe(true);
+  });
+
+  it('fails the deposit when it cannot be submitted', async () => {
+    const strict = new ShieldedTransfer(client, createMemoryStorageProvider());
+    await strict.initialize();
+    const failed = vi.fn();
+    strict.on('onTransferFailed', failed);
+    await expect(
+      strict.deposit({ amount: '1', token: 'USDC', recipient: KEY() }),
+    ).rejects.toThrow();
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(await strict.getTransactionHistory()).toEqual([]);
   });
 
   describe('input validation', () => {
