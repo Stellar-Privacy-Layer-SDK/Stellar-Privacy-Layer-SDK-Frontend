@@ -12,13 +12,14 @@
 //!   encoded as `c1 || c0`)
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, vec, BytesN, Env, String, Symbol,
+    contract, contractimpl, contracttype, symbol_short, vec, Address, BytesN, Env, String, Symbol,
     Vec, crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine},
 };
 
 const COMMITMENTS: Symbol = symbol_short!("cmmts");
 const NULLIFIERS: Symbol = symbol_short!("nulrs");
 const VIEWING_KEYS: Symbol = symbol_short!("vkeys");
+const ADMIN: Symbol = symbol_short!("admin");
 const VKEY: Symbol = symbol_short!("vkey");
 
 /// A Groth16 proof. Points are serialized in Ethereum-compatible format.
@@ -57,6 +58,16 @@ pub struct PrivacyVerifier;
 
 #[contractimpl]
 impl PrivacyVerifier {
+    /// Set the admin allowed to manage the verification and viewing keys.
+    pub fn __constructor(env: Env, admin: Address) {
+        env.storage().instance().set(&ADMIN, &admin);
+    }
+
+    fn require_admin(env: &Env) {
+        let admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        admin.require_auth();
+    }
+
     /// Deposit a commitment hash into the shielded pool.
     pub fn deposit(env: Env, commitment: BytesN<32>, amount: String, token: String) {
         let key = (COMMITMENTS, commitment);
@@ -87,6 +98,7 @@ impl PrivacyVerifier {
 
     /// Store the Groth16 verification key used by [`Self::verify_proof`].
     pub fn set_vkey(env: Env, vkey: Groth16VKey) {
+        Self::require_admin(&env);
         env.storage().persistent().set(&VKEY, &vkey);
     }
 
@@ -132,6 +144,7 @@ impl PrivacyVerifier {
 
     /// Set a viewing key for a regulator.
     pub fn set_viewing_key(env: Env, regulator: BytesN<32>, encrypted_key: BytesN<64>) {
+        Self::require_admin(&env);
         let key = (VIEWING_KEYS, regulator.clone());
         env.storage().persistent().set(
             &key,
@@ -145,6 +158,7 @@ impl PrivacyVerifier {
 
     /// Revoke a regulator's viewing key.
     pub fn revoke_viewing_key(env: Env, regulator: BytesN<32>) {
+        Self::require_admin(&env);
         let key = (VIEWING_KEYS, regulator.clone());
         if let Some(mut data) = env.storage().persistent().get::<_, ViewingKeyData>(&key) {
             data.active = false;
@@ -171,11 +185,12 @@ mod test {
     extern crate std;
 
     use super::*;
-    use soroban_sdk::{vec, BytesN, Env, String};
+    use soroban_sdk::{testutils::Address as _, vec, BytesN, Env, String};
 
     /// Register the contract natively and return a client bound to `env`.
     fn deploy(env: &Env) -> PrivacyVerifierClient<'_> {
-        let contract_id = env.register(PrivacyVerifier, ());
+        env.mock_all_auths();
+        let contract_id = env.register(PrivacyVerifier, (Address::generate(env),));
         PrivacyVerifierClient::new(env, &contract_id)
     }
 
@@ -247,6 +262,17 @@ mod test {
         let commitment = BytesN::from_array(&env, &[0xaa; 32]);
         client.deposit(&commitment, &String::from_str(&env, "100"), &String::from_str(&env, "USDC"));
         client.deposit(&commitment, &String::from_str(&env, "1"), &String::from_str(&env, "USDC"));
+    }
+
+    #[test]
+    fn test_key_management_requires_admin() {
+        let env = Env::default();
+        let client = deploy(&env);
+        env.set_auths(&[]);
+        let key = BytesN::from_array(&env, &[0xcc; 32]);
+        assert!(client.try_set_vkey(&valid_vkey(&env, 1)).is_err());
+        assert!(client.try_set_viewing_key(&key, &BytesN::from_array(&env, &[0; 64])).is_err());
+        assert!(client.try_revoke_viewing_key(&key).is_err());
     }
 
     #[test]
