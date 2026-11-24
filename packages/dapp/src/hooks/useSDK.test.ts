@@ -131,6 +131,17 @@ describe('useNetwork', () => {
   });
 });
 
+describe('useNetwork defaults', () => {
+  it.each([null, 'bogus'])('uses the configured network when %s is saved', (saved) => {
+    localStorage.clear();
+    if (saved) localStorage.setItem('stellar-privacy:network', saved);
+    mocks.client.getNetworkConfig.mockReturnValue({ network: 'public' });
+    const { result } = renderHook(() => useNetwork());
+    expect(result.current.network).toBe('public');
+    mocks.client.getNetworkConfig.mockReturnValue({ network: 'testnet' });
+  });
+});
+
 describe('useSDKReady', () => {
   it('reports ready after SDK initialisation', async () => {
     const { result } = renderHook(() => useSDKReady());

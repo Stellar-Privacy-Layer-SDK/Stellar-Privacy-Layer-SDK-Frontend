@@ -234,10 +234,11 @@ export function useNetwork() {
   const [network, setNetwork] = useState<Network>(() => {
     try {
       const saved = localStorage.getItem(NETWORK_STORAGE_KEY);
-      return saved ? (saved as Network) : Network.TESTNET;
+      if (Object.values(Network).includes(saved as Network)) return saved as Network;
     } catch {
-      return Network.TESTNET;
+      // storage unavailable
     }
+    return sdk.client.getNetworkConfig().network;
   });
 
   const switchNetwork = useCallback(
