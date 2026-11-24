@@ -7,7 +7,7 @@ export type WalletProvider = 'freighter' | 'xbull' | 'albedo' | 'rabet' | 'lobst
 interface FreighterModule {
   isConnected: () => Promise<{ isConnected: boolean }>;
   getAddress: () => Promise<{ address: string }>;
-  signTransaction: (xdr: string, opts?: { networkPassphrase?: string }) => Promise<{ signedTxXdr: string; signerAddress: string } | string>;
+  signTransaction: (xdr: string, opts?: { networkPassphrase?: string }) => Promise<{ signedTxXdr: string; signerAddress: string; error?: { message: string } } | string>;
   getNetwork: () => Promise<{ network: string; networkPassphrase: string }>;
 }
 
@@ -109,16 +109,17 @@ export class WalletManager extends EventEmitter {
     this.emit('onWalletDisconnected');
   }
 
-  async signTransaction(xdr: string): Promise<string> {
+  async signTransaction(xdr: string, networkPassphrase?: string): Promise<string> {
     if (!this.walletInfo) {
       throw new Error('Wallet not connected');
     }
 
     const freighter = await this.getFreighterModule();
     const result = await freighter.signTransaction(xdr, {
-      networkPassphrase: this.config.network.networkPassphrase,
+      networkPassphrase: networkPassphrase ?? this.config.network.networkPassphrase,
     });
     if (typeof result === 'string') return result;
+    if (result.error) throw new Error(`Transaction signing failed: ${result.error.message}`);
     return result.signedTxXdr;
   }
 

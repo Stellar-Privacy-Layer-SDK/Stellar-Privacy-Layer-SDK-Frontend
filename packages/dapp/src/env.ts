@@ -16,6 +16,8 @@ interface DappEnv {
    * withdraw.
    */
   readonly VITE_ZK_ARTIFACTS_URL?: string;
+  /** Relayer for withdrawals; without it the connected wallet submits them. */
+  readonly VITE_RELAYER_URL?: string;
 }
 
 function readEnv(): DappEnv {
@@ -60,4 +62,8 @@ export function isDebugEnabled(): boolean {
 export function getZkArtifactsBaseUrl(): string | null {
   const url = readEnv().VITE_ZK_ARTIFACTS_URL;
   return url && url.trim() ? url.trim() : null;
+}
+
+export function getRelayerUrl(): string | null {
+  return readEnv().VITE_RELAYER_URL?.trim() || null;
 }
