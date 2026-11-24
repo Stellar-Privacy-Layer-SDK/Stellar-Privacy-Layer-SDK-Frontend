@@ -13,6 +13,8 @@ import type { Prover } from './prover.js';
 
 const NOTES_KEY = 'notes';
 const TRANSACTIONS_KEY = 'transactions';
+/** Larger trees are not cached: browsers limit storage to about 5 MB. */
+const MAX_STORED_LEAVES = 10_000;
 /** Transactions are valid for 30 seconds; after this they cannot succeed. */
 const EXPIRY_MS = 5 * 60_000;
 
@@ -25,6 +27,7 @@ const EXPIRY_MS = 5 * 60_000;
 export class ShieldedPool extends EventEmitter {
   private notes: Note[] = [];
   private transactions: ShieldedTransaction[] = [];
+  private stored = new Map<string, string>();
   private trees = new Map<string, MerkleTree>();
   private syncing: Promise<unknown> = Promise.resolve();
 
@@ -61,25 +64,50 @@ export class ShieldedPool extends EventEmitter {
     this.emit('change');
   }
 
-  /** Fetches only new commitments, unless the pool changed underneath. */
-  private async syncTree(): Promise<MerkleTree> {
+  /** Fetches only new commitments; starts over if the result is not the pool's root. */
+  private syncTree(): Promise<MerkleTree> {
     const { network, contractId } = this.client.getNetworkConfig();
     const id = `${network}:${contractId}`;
     // Serialized so concurrent calls cannot append the same leaves twice.
     const result = this.syncing.then(async () => {
-      let tree = this.trees.get(id) ?? new MerkleTree();
-      const { root, depositCount } = await this.client.getPoolInfo();
-      if (depositCount < tree.leaves.length || (depositCount === tree.leaves.length && depositCount > 0 && root !== tree.root)) {
-        tree = new MerkleTree(); // e.g. a testnet reset
-      }
-      if (depositCount > tree.leaves.length) {
-        for (const leaf of await this.client.getLeaves(tree.leaves.length)) await tree.append(leaf);
+      const cached = this.trees.get(id) ?? (await this.loadTree(id));
+      const tree = (cached && (await this.update(cached))) || (await this.update(new MerkleTree()));
+      if (!tree) throw new Error('The pool changed while it was being read; try again');
+      if (tree.leaves.length <= MAX_STORED_LEAVES && this.stored.get(id) !== tree.root) {
+        await this.storage.set(`tree:${id}`, JSON.stringify(tree));
+        this.stored.set(id, tree.root);
       }
       this.trees.set(id, tree);
       return tree;
     });
     this.syncing = result.catch(() => {});
     return result;
+  }
+
+  private async loadTree(id: string): Promise<MerkleTree | undefined> {
+    try {
+      const json = await this.storage.get(`tree:${id}`);
+      return json ? await MerkleTree.fromJSON(JSON.parse(json)) : undefined;
+    } catch {
+      return undefined; // only a cache
+    }
+  }
+
+  /** Appends new leaves. Returns undefined when the tree does not match the pool. */
+  private async update(tree: MerkleTree): Promise<MerkleTree | undefined> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { root, depositCount } = await this.client.getPoolInfo();
+      const known = tree.leaves.length;
+      if (depositCount > known) {
+        for (const leaf of await this.client.getLeaves(known)) await tree.append(leaf);
+      }
+      if (depositCount === tree.leaves.length) {
+        return depositCount === 0 || root === tree.root ? tree : undefined;
+      }
+      if (depositCount < known) return undefined;
+      // A deposit landed between the two reads.
+    }
+    return undefined;
   }
 
   getInfo(): Promise<PoolInfo> {

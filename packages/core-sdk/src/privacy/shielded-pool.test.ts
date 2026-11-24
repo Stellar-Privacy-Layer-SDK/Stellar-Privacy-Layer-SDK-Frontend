@@ -168,6 +168,30 @@ describe('ShieldedPool', () => {
     expect(merkleProof.root).toBe(await rootOf(chain.leaves));
   });
 
+  it('reuses the stored tree after a reload unless it is stale or corrupt', async () => {
+    const pool = await open();
+    await pool.deposit();
+    await pool.refresh();
+    chain.client.getLeaves.mockClear();
+    await (await open()).refresh();
+    expect(chain.client.getLeaves).not.toHaveBeenCalled();
+
+    await storage.set(`tree:${Network.TESTNET}:${CONTRACT}`, '[]');
+    await (await open()).refresh();
+    expect(chain.client.getLeaves).toHaveBeenCalledWith(0);
+  });
+
+  it('retries when a deposit lands between reads', async () => {
+    const pool = await open();
+    await pool.deposit();
+    chain.client.getLeaves.mockImplementationOnce(async (start = 0) => {
+      chain.leaves.push('0x9');
+      return chain.leaves.slice(start);
+    });
+    await pool.refresh();
+    expect(pool.getNotes()[0].status).toBe('available');
+  });
+
   it('withdraws through a relayer when configured', async () => {
     const relayer = { withdraw: vi.fn(async () => 'relayed') };
     const pool = new ShieldedPool(chain.client as unknown as StellarClient, prover, storage, relayer);
