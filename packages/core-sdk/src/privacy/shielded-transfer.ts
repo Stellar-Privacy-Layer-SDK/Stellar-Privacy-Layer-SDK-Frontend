@@ -301,6 +301,33 @@ export class ShieldedTransfer {
     }
   }
 
+  /** Commitments that have not been withdrawn yet. */
+  async getCommitments(): Promise<Commitment[]> {
+    return [...this.commitments.values()];
+  }
+
+  /**
+   * Polls the network for every pending transaction and persists the outcome.
+   * Returns true when at least one status changed.
+   */
+  async refreshPendingTransactions(): Promise<boolean> {
+    const pending = this.transactions.filter(
+      (tx) => tx.status === 'pending' && !tx.txHash.startsWith('simulated_'),
+    );
+    const statuses = await Promise.all(
+      pending.map((tx) => this.refreshTransactionStatus(tx.txHash)),
+    );
+    let changed = false;
+    pending.forEach((tx, i) => {
+      if (statuses[i] === 'SUCCESS') tx.status = 'confirmed';
+      else if (statuses[i] === 'FAILED') tx.status = 'failed';
+      else return;
+      changed = true;
+    });
+    if (changed) await this.persistState();
+    return changed;
+  }
+
   async refreshTransactionStatus(txHash: string): Promise<string> {
     try {
       return await this.client.getTransactionStatus(txHash);

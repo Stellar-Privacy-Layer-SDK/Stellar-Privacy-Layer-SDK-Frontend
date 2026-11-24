@@ -214,6 +214,36 @@ describe('ShieldedTransfer', () => {
     });
   });
 
+  it('updates and persists pending transaction statuses', async () => {
+    const storage = createMemoryStorageProvider();
+    const t = new ShieldedTransfer(client, storage);
+    await t.initialize();
+    const submit = vi.spyOn(client, 'depositCommitment');
+    const status = vi.spyOn(client, 'getTransactionStatus');
+    try {
+      for (const hash of ['ok', 'bad', 'unknown']) {
+        submit.mockResolvedValueOnce(hash);
+        await t.deposit({ amount: '1', token: 'USDC', recipient: KEY() });
+      }
+      status.mockImplementation(
+        async (hash) => ({ ok: 'SUCCESS', bad: 'FAILED' })[hash] ?? 'NOT_FOUND',
+      );
+      expect(await t.refreshPendingTransactions()).toBe(true);
+      expect(await t.refreshPendingTransactions()).toBe(false);
+
+      const reloaded = new ShieldedTransfer(client, storage);
+      await reloaded.initialize();
+      const byHash = Object.fromEntries(
+        (await reloaded.getTransactionHistory()).map((tx) => [tx.txHash, tx.status]),
+      );
+      expect(byHash).toEqual({ ok: 'confirmed', bad: 'failed', unknown: 'pending' });
+      expect(await reloaded.getCommitments()).toHaveLength(3);
+    } finally {
+      submit.mockRestore();
+      status.mockRestore();
+    }
+  });
+
   it('returns the transaction status from the client', async () => {
     const status = await transfer.refreshTransactionStatus('0x' + 'e'.repeat(64));
     expect(status).toBe('SUCCESS');
