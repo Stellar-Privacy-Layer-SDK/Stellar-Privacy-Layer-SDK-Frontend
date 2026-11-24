@@ -1,4 +1,4 @@
-import { Address } from '@stellar/stellar-sdk';
+import { Address, nativeToScVal } from '@stellar/stellar-sdk';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { toFieldElement } from '../utils/crypto.js';
 import { fromHex, toHex } from '../utils/encoding.js';
@@ -27,11 +27,19 @@ export function encodeGroth16Proof({ pi_a, pi_b, pi_c }: ZKProof) {
 }
 
 /**
- * The address as the contract binds it into proofs: sha256 of its XDR with the
- * top byte cleared so it fits the field.
+ * The payout as the contract binds it into proofs: sha256 of the recipient,
+ * relayer and fee XDR with the top byte cleared so it fits the field.
  */
-export function recipientField(address: string): string {
-  const digest = sha256(Uint8Array.from(Address.fromString(address).toScVal().toXDR()));
+export function payoutField(recipient: string, relayer: string, fee: string): string {
+  const hash = sha256.create();
+  for (const value of [
+    Address.fromString(recipient).toScVal(),
+    Address.fromString(relayer).toScVal(),
+    nativeToScVal(BigInt(fee), { type: 'i128' }),
+  ]) {
+    hash.update(Uint8Array.from(value.toXDR()));
+  }
+  const digest = hash.digest();
   digest[0] = 0;
   return '0x' + toHex(digest);
 }

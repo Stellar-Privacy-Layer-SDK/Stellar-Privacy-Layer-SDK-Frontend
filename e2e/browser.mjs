@@ -44,7 +44,7 @@ const contractId = await chain.deployPool(user, {
 console.log('pool deployed');
 
 const relayerProcess = spawn(process.execPath, [path('packages/relayer/main.mjs')], {
-  env: { ...process.env, RELAYER_SECRET: relayer.secret(), CONTRACT_ID: contractId, NETWORK: 'sandbox', PORT: '8787' },
+  env: { ...process.env, RELAYER_SECRET: relayer.secret(), CONTRACT_ID: contractId, NETWORK: 'sandbox', PORT: '8787', FEE: '5000000' },
   stdio: 'inherit',
 });
 execFileSync('npm', ['run', '-s', 'build:dapp'], {
@@ -121,11 +121,12 @@ try {
 
   const before = await balance(recipient.publicKey());
   await go('Withdraw');
+  await page.getByText('Relayer fee: 0.5000000').waitFor();
   await page.getByRole('radio').check();
   await page.getByLabel('Recipient (G...)').fill(recipient.publicKey());
   await page.getByRole('button', { name: 'Withdraw', exact: true }).click();
   await page.getByText('Transaction History').waitFor({ timeout: 90_000 });
-  assert.equal((await balance(recipient.publicKey())) - before, 100);
+  assert.equal((await balance(recipient.publicKey())) - before, 99.5);
   assert.equal(signatures, 1, 'the user wallet must not sign the withdrawal');
   console.log('relayed withdrawal paid the recipient');
   await page.getByText('Confirmed').nth(1).waitFor({ timeout: 30_000 });

@@ -1,23 +1,24 @@
 //! A withdrawal proof for the third of three notes, with its verification key,
-//! hex-encoded in the contract's wire format.
+//! hex-encoded in the contract's wire format. Run `npm run build:fixture`.
 
 pub const RECIPIENT: &str = "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA";
+pub const RELAYER: &str = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
 pub const A: &str = concat!(
-    "2f52e99631acb0c4c0a856013f188155672d7a6316f3c9b5e0284d90004abd0c",
-    "104cd02142329aad704b84b484c7ff3fe0c0a65cb427bb909851b9f477ef475f",
+    "26df853df2cd21686af485f2cc5fb67a127e2cfa055cefd632a620c49dc91beb",
+    "1bb96e425db5f2c740f054e1508022f7a92ed92430dbca52d26ab83079215900",
 );
 
 pub const B: &str = concat!(
-    "0b487ac12f7edf3072e82006b8af5533fb5add32ee9a29464814e94e9b1da97a",
-    "08d00afdaf1757833d9f44a5a0f8c891540ae6654144875370b8b5c8bb3730fd",
-    "2b4c1e08bc9b5511b72325c47514d79848a82e5f9b0d1dfaf77075ab7f6b9f0d",
-    "1a0ca5a364f3614e2ba88d7f381bceacd7152b4752eef3dbeacf92c810ca92fc",
+    "13669a06eea90cfd39bdbdd8948a853fd52dc4f6b0b74b6bafbd0c63fe4bc641",
+    "04e9cb8bb8b436f72eac4956fabf2c508c2c1c8155f984d75a217d34e78070dd",
+    "1373bb3ed03b6953ee151cd148e2b5ba16a9ffd527722437ba9d3f4a1f6d2216",
+    "27f22d16ed93423983b98979cd6605622a127621ade56f156b1a3adeb2ff5b41",
 );
 
 pub const C: &str = concat!(
-    "16468566a2896ade14eaafbc1b701752da431c19c191bd52d97dd0a03338fa45",
-    "27d3a50fe9d210bffc2de57325ee563393a72db6c54e67b6d5fd67cd1ce64aec",
+    "01b5c033736eb8ad07f5b05019010f121f227f9c855cf3ddc57c56a15f858b58",
+    "225afff17dd96b66ac2d341ccb72ed527f591dd3e5be88630fc1619b2c7799c0",
 );
 
 pub const ALPHA: &str = concat!(

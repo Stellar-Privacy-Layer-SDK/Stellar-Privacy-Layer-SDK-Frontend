@@ -17,7 +17,7 @@ export {
 } from './stellar/config.js';
 export { ShieldedPool } from './privacy/shielded-pool.js';
 export { encodeNote, decodeNote, deriveNote, type Note, type NoteStatus } from './privacy/note.js';
-export { recipientField } from './stellar/abi.js';
+export { payoutField, encodeGroth16Proof } from './stellar/abi.js';
 export { ViewingKeyManager } from './compliance/viewing-keys.js';
 export { SelectiveDisclosure } from './compliance/selective-disclosure.js';
 export type { Prover, ProverArtifacts, WithdrawalStatement } from './privacy/prover.js';
@@ -25,6 +25,7 @@ export {
   HttpRelayer,
   parseWithdrawalRequest,
   type Relayer,
+  type RelayerInfo,
   type WithdrawalRequest,
 } from './privacy/relayer.js';
 export { SnarkjsProver } from './privacy/snarkjs-prover.js';

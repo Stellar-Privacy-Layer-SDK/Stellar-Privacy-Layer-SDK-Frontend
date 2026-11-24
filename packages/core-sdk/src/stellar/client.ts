@@ -8,8 +8,9 @@ import {
   nativeToScVal,
 } from '@stellar/stellar-sdk';
 import { EventEmitter } from 'events';
-import { Network, NetworkConfig, PoolInfo, WalletInfo, SDKConfig, ZKProof } from '../types.js';
+import { Network, NetworkConfig, PoolInfo, WalletInfo, SDKConfig } from '../types.js';
 import { NETWORK_CONFIGS } from './config.js';
+import type { WithdrawalRequest } from '../privacy/relayer.js';
 import { encodeGroth16Proof, fieldBytes } from './abi.js';
 import { toHex } from '../utils/encoding.js';
 import { logger } from '../utils/logger.js';
@@ -46,6 +47,7 @@ export class StellarClient extends EventEmitter {
   private contract: Contract | null = null;
   private config: SDKConfig;
   private walletInfo: WalletInfo | null = null;
+  private decimals = new Map<string, number>();
   private signer: TransactionSigner;
   private networkConfigs = new Map<Network, NetworkConfig>();
 
@@ -78,7 +80,7 @@ export class StellarClient extends EventEmitter {
     return this.walletInfo?.isConnected ?? false;
   }
 
-  async connectWallet(publicKey: string, network: Network = Network.TESTNET): Promise<WalletInfo> {
+  async connectWallet(publicKey: string, network: Network = this.config.network.network): Promise<WalletInfo> {
     if (!publicKey) {
       throw new Error('Cannot connect wallet: public key is required');
     }
@@ -203,9 +205,13 @@ export class StellarClient extends EventEmitter {
   }
 
   async callContract(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal> {
+    return this.read(this.getContract(), method, args);
+  }
+
+  private async read(contract: Contract, method: string, args: xdr.ScVal[]): Promise<xdr.ScVal> {
     this.requireWallet();
 
-    const operation = this.getContract().call(method, ...args);
+    const operation = contract.call(method, ...args);
     const transaction = (await this.buildTransaction(operation)).build();
 
     const result = await this.rpc.simulateTransaction(transaction);
@@ -240,8 +246,15 @@ export class StellarClient extends EventEmitter {
       next_index: number;
       root: Uint8Array;
     };
+    let decimals = this.decimals.get(info.token);
+    if (decimals === undefined) {
+      const value = await this.read(new Contract(info.token), 'decimals', []);
+      decimals = scValToNative(value) as number;
+      this.decimals.set(info.token, decimals);
+    }
     return {
       token: info.token,
+      decimals,
       denomination: info.denomination.toString(),
       depositCount: info.next_index,
       root: '0x' + toHex(info.root),
@@ -275,20 +288,17 @@ export class StellarClient extends EventEmitter {
     );
   }
 
-  async withdraw(
-    proof: ZKProof,
-    root: string,
-    nullifier: string,
-    recipient: string,
-  ): Promise<string> {
+  async withdraw(request: WithdrawalRequest): Promise<string> {
     return this.sendTransaction(
       'withdraw',
-      nativeToScVal(encodeGroth16Proof(proof), {
+      nativeToScVal(encodeGroth16Proof(request.proof), {
         type: { a: ['symbol', 'bytes'], b: ['symbol', 'bytes'], c: ['symbol', 'bytes'] },
       }),
-      this.field(root),
-      this.field(nullifier),
-      Address.fromString(recipient).toScVal(),
+      this.field(request.root),
+      this.field(request.nullifier),
+      Address.fromString(request.recipient).toScVal(),
+      Address.fromString(request.relayer).toScVal(),
+      nativeToScVal(BigInt(request.fee), { type: 'i128' }),
     );
   }
 

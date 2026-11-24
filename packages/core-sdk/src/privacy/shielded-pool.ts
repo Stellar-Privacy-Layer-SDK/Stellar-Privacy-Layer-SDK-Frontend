@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { recipientField } from '../stellar/abi.js';
+import { payoutField } from '../stellar/abi.js';
 import { NotSubmittedError, type StellarClient } from '../stellar/client.js';
 import type { PoolInfo, ShieldedTransaction, StorageProvider } from '../types.js';
 import { generateRandomField } from '../utils/crypto.js';
@@ -13,19 +13,21 @@ import type { Prover } from './prover.js';
 
 const NOTES_KEY = 'notes';
 const TRANSACTIONS_KEY = 'transactions';
-const TOKEN_DECIMALS = 7;
+/** Larger trees are not cached: browsers limit storage to about 5 MB. */
+const MAX_STORED_LEAVES = 10_000;
 /** Transactions are valid for 30 seconds; after this they cannot succeed. */
 const EXPIRY_MS = 5 * 60_000;
 
 /**
  * Deposits to and withdrawals from the shielded pool contract.
  *
- * Note secrets are kept in `storage` unencrypted: losing them loses the funds,
+ * Note secrets are kept in `storage`, so pass an encrypted one: losing them loses the funds,
  * and leaking them lets others spend. Emits `change` when state changes.
  */
 export class ShieldedPool extends EventEmitter {
   private notes: Note[] = [];
   private transactions: ShieldedTransaction[] = [];
+  private stored = new Map<string, string>();
   private trees = new Map<string, MerkleTree>();
   private syncing: Promise<unknown> = Promise.resolve();
 
@@ -62,25 +64,50 @@ export class ShieldedPool extends EventEmitter {
     this.emit('change');
   }
 
-  /** Fetches only new commitments, unless the pool changed underneath. */
-  private async syncTree(): Promise<MerkleTree> {
+  /** Fetches only new commitments; starts over if the result is not the pool's root. */
+  private syncTree(): Promise<MerkleTree> {
     const { network, contractId } = this.client.getNetworkConfig();
     const id = `${network}:${contractId}`;
     // Serialized so concurrent calls cannot append the same leaves twice.
     const result = this.syncing.then(async () => {
-      let tree = this.trees.get(id) ?? new MerkleTree();
-      const { root, depositCount } = await this.client.getPoolInfo();
-      if (depositCount < tree.leaves.length || (depositCount === tree.leaves.length && depositCount > 0 && root !== tree.root)) {
-        tree = new MerkleTree(); // e.g. a testnet reset
-      }
-      if (depositCount > tree.leaves.length) {
-        for (const leaf of await this.client.getLeaves(tree.leaves.length)) await tree.append(leaf);
+      const cached = this.trees.get(id) ?? (await this.loadTree(id));
+      const tree = (cached && (await this.update(cached))) || (await this.update(new MerkleTree()));
+      if (!tree) throw new Error('The pool changed while it was being read; try again');
+      if (tree.leaves.length <= MAX_STORED_LEAVES && this.stored.get(id) !== tree.root) {
+        await this.storage.set(`tree:${id}`, JSON.stringify(tree));
+        this.stored.set(id, tree.root);
       }
       this.trees.set(id, tree);
       return tree;
     });
     this.syncing = result.catch(() => {});
     return result;
+  }
+
+  private async loadTree(id: string): Promise<MerkleTree | undefined> {
+    try {
+      const json = await this.storage.get(`tree:${id}`);
+      return json ? await MerkleTree.fromJSON(JSON.parse(json)) : undefined;
+    } catch {
+      return undefined; // only a cache
+    }
+  }
+
+  /** Appends new leaves. Returns undefined when the tree does not match the pool. */
+  private async update(tree: MerkleTree): Promise<MerkleTree | undefined> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { root, depositCount } = await this.client.getPoolInfo();
+      const known = tree.leaves.length;
+      if (depositCount > known) {
+        for (const leaf of await this.client.getLeaves(known)) await tree.append(leaf);
+      }
+      if (depositCount === tree.leaves.length) {
+        return depositCount === 0 || root === tree.root ? tree : undefined;
+      }
+      if (depositCount < known) return undefined;
+      // A deposit landed between the two reads.
+    }
+    return undefined;
   }
 
   getInfo(): Promise<PoolInfo> {
@@ -108,7 +135,7 @@ export class ShieldedPool extends EventEmitter {
       network,
       contractId,
       token: info.token,
-      amount: formatUnits(info.denomination, TOKEN_DECIMALS),
+      amount: formatUnits(info.denomination, info.decimals),
       status,
       timestamp: Date.now(),
     };
@@ -149,8 +176,23 @@ export class ShieldedPool extends EventEmitter {
     return { txHash, note };
   }
 
-  /** Withdraws a whole note to `recipient`. */
-  async withdraw(commitment: string, recipient: string): Promise<{ txHash: string }> {
+  /** The relayer's fee and what the recipient receives, in the smallest unit. */
+  async quoteWithdrawal(): Promise<{ fee: string; received: string }> {
+    const { denomination } = await this.client.getPoolInfo();
+    const fee = this.relayer ? (await this.relayer.getInfo()).fee : '0';
+    if (BigInt(fee) >= BigInt(denomination)) throw new Error('The relayer fee is too high');
+    return { fee, received: (BigInt(denomination) - BigInt(fee)).toString() };
+  }
+
+  /**
+   * Withdraws a whole note to `recipient`. Pass the quoted fee as `maxFee` so
+   * the relayer cannot raise it.
+   */
+  async withdraw(
+    commitment: string,
+    recipient: string,
+    maxFee?: string,
+  ): Promise<{ txHash: string }> {
     const note = this.getNotes().find((n) => n.commitment === commitment);
     if (!note) throw new Error('Note not found');
     if (note.status === 'spent') throw new Error('Note is already spent');
@@ -159,20 +201,32 @@ export class ShieldedPool extends EventEmitter {
     }
     if (!this.prover) throw new Error('No prover configured');
 
+    const quote = await this.quoteWithdrawal();
+    if (maxFee !== undefined && BigInt(quote.fee) > BigInt(maxFee)) {
+      throw new Error('The relayer raised its fee; review it and try again');
+    }
     const tree = await this.syncTree();
     const index = tree.leaves.indexOf(note.commitment);
     if (index === -1) throw new Error('The deposit is not confirmed on-chain yet');
 
+    const relayer = this.relayer ? (await this.relayer.getInfo()).address : recipient;
     const merkleProof = tree.prove(index);
     const { proof } = await this.prover.proveWithdrawal({
       secret: note.secret,
       merkleProof,
-      recipient: recipientField(recipient),
+      recipient: payoutField(recipient, relayer, quote.fee),
     });
-    const request = { proof, root: merkleProof.root, nullifier: note.nullifier, recipient };
+    const request = {
+      proof,
+      root: merkleProof.root,
+      nullifier: note.nullifier,
+      recipient,
+      relayer,
+      fee: quote.fee,
+    };
     const txHash = this.relayer
       ? await this.relayer.withdraw(request)
-      : await this.client.withdraw(proof, request.root, request.nullifier, recipient);
+      : await this.client.withdraw(request);
     note.status = 'spending';
     this.record('withdrawal', note, txHash, recipient);
     await this.save();

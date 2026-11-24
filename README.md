@@ -11,7 +11,7 @@ SDK and a reference dApp.
    `Poseidon(secret, 1)`, which the contract adds to an on-chain Merkle tree.
 2. **Withdraw** proves in zero knowledge that you know the secret of *some*
    commitment, and reveals `Poseidon(secret, 0)` so it can be spent only once.
-3. The proof is bound to the recipient, so any account may submit it. Observers
+3. The proof is bound to the recipient, relayer and fee, so any account may submit it. Observers
    see a deposit and a withdrawal but not which deposit was withdrawn.
 
 ```
@@ -72,8 +72,8 @@ ones the pool was deployed with.
 RELAYER_SECRET=S... CONTRACT_ID=C... NETWORK=testnet npm start -w packages/relayer
 ```
 
-It pays transaction fees itself and is not reimbursed. Put it behind TLS; its
-rate limit uses the socket address, so a proxy needs its own.
+`FEE` (smallest token unit, default 0) is deducted from each withdrawal and paid
+to the relayer. Put it behind TLS and set `TRUST_PROXY=true` behind one proxy.
 
 ## SDK
 
@@ -107,7 +107,7 @@ the default stores secrets in plaintext. Pass `relayer: new HttpRelayer(url)` to
 - **Losing both the password and the note backup loses the deposit.**
 - **Disclosures are signed attestations**, not zero-knowledge proofs.
 - Commitments are read from the contract 100 at a time; large pools need an
-  indexer. Pool tokens are assumed to have 7 decimals.
+  indexer.
 
 See [SECURITY.md](SECURITY.md) for the threat model and
 [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.

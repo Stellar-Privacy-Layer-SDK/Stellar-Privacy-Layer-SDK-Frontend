@@ -4,11 +4,11 @@ import { parseWithdrawalRequest } from '@stellar-privacy/sdk';
 const MAX_BODY = 8 * 1024;
 
 /**
- * HTTP relayer. `submit(request)` sends the withdrawal and resolves to its
+ * HTTP relayer. `info` is its address and minimum fee; `submit(request)` sends the withdrawal and resolves to its
  * hash. Requests run one at a time because the account's sequence number
  * cannot be shared. Request contents and client addresses are never logged.
  */
-export function createRelayer({ submit, maxPerMinute = 10, maxQueue = 20 }) {
+export function createRelayer({ info, submit, trustProxy = false, maxPerMinute = 10, maxQueue = 20 }) {
   let queue = Promise.resolve();
   let queued = 0;
   const recent = new Map();
@@ -22,6 +22,11 @@ export function createRelayer({ submit, maxPerMinute = 10, maxQueue = 20 }) {
     return false;
   };
 
+  // The last entry is the one added by our own proxy; earlier ones are client-supplied.
+  const clientAddress = (req) =>
+    (trustProxy && req.headers['x-forwarded-for']?.split(',').at(-1).trim()) ||
+    req.socket.remoteAddress;
+
   return createServer(async (req, res) => {
     const reply = (status, body) => {
       res.writeHead(status, {
@@ -33,8 +38,9 @@ export function createRelayer({ submit, maxPerMinute = 10, maxQueue = 20 }) {
     };
     if (req.method === 'OPTIONS') return reply(200, {});
     if (req.method === 'GET' && req.url === '/health') return reply(200, { status: 'ok' });
+    if (req.method === 'GET' && req.url === '/info') return reply(200, info);
     if (req.method !== 'POST' || req.url !== '/withdraw') return reply(404, { error: 'Not found' });
-    if (limited(req.socket.remoteAddress)) return reply(429, { error: 'Too many requests' });
+    if (limited(clientAddress(req))) return reply(429, { error: 'Too many requests' });
     if (queued >= maxQueue) return reply(503, { error: 'Busy' });
 
     let request;
@@ -47,6 +53,9 @@ export function createRelayer({ submit, maxPerMinute = 10, maxQueue = 20 }) {
       request = parseWithdrawalRequest(JSON.parse(body));
     } catch {
       return reply(400, { error: 'Invalid withdrawal request' });
+    }
+    if (request.relayer !== info.address || BigInt(request.fee) < BigInt(info.fee)) {
+      return reply(400, { error: 'Wrong relayer or fee too low' });
     }
     queued++;
     const result = queue.then(() => submit(request));

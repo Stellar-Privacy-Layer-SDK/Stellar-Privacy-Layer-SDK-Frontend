@@ -8,6 +8,7 @@ use soroban_sdk::{
 };
 
 const DENOMINATION: i128 = 100_0000000;
+const FEE: i128 = 5000000;
 
 struct Setup {
     env: Env,
@@ -15,6 +16,7 @@ struct Setup {
     token: TokenClient<'static>,
     user: Address,
     recipient: Address,
+    relayer: Address,
 }
 
 fn hex<const N: usize>(env: &Env, value: &str) -> BytesN<N> {
@@ -60,6 +62,7 @@ fn setup() -> Setup {
         pool: ShieldedPoolClient::new(&env, &id),
         token: TokenClient::new(&env, &asset.address()),
         recipient: Address::from_string(&String::from_str(&env, fixture::RECIPIENT)),
+        relayer: Address::from_string(&String::from_str(&env, fixture::RELAYER)),
         user,
         env,
     }
@@ -98,8 +101,9 @@ fn withdraw_pays_the_recipient_without_authorization() {
     let s = setup();
     fund(&s);
     s.env.set_auths(&[]);
-    s.pool.withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient);
-    assert_eq!(s.token.balance(&s.recipient), DENOMINATION);
+    s.pool.withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient, &s.relayer, &FEE);
+    assert_eq!(s.token.balance(&s.recipient), DENOMINATION - FEE);
+    assert_eq!(s.token.balance(&s.relayer), FEE);
     assert_eq!(s.token.balance(&s.pool.address), DENOMINATION * 2);
     assert!(s.pool.is_nullifier_spent(&nullifier(&s)));
 }
@@ -108,9 +112,9 @@ fn withdraw_pays_the_recipient_without_authorization() {
 fn withdraw_rejects_double_spend() {
     let s = setup();
     fund(&s);
-    s.pool.withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient);
+    s.pool.withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient, &s.relayer, &FEE);
     assert_eq!(
-        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient),
+        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient, &s.relayer, &FEE),
         Err(Ok(Error::NullifierSpent.into()))
     );
 }
@@ -119,12 +123,12 @@ fn withdraw_rejects_double_spend() {
 fn withdraw_rejects_an_alternative_encoding_of_a_spent_nullifier() {
     let s = setup();
     fund(&s);
-    s.pool.withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient);
+    s.pool.withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient, &s.relayer, &FEE);
     let alias = to_bytes(
         U256::from_be_bytes(&s.env, nullifier(&s).as_ref()).add(&Bn254Fr::modulus(&s.env)),
     );
     assert_eq!(
-        s.pool.try_withdraw(&proof(&s.env), &root(&s), &alias, &s.recipient),
+        s.pool.try_withdraw(&proof(&s.env), &root(&s), &alias, &s.recipient, &s.relayer, &FEE),
         Err(Ok(Error::NotAFieldElement.into()))
     );
 }
@@ -134,10 +138,28 @@ fn withdraw_rejects_a_redirected_recipient() {
     let s = setup();
     fund(&s);
     assert_eq!(
-        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.user),
+        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.user, &s.relayer, &FEE),
         Err(Ok(Error::InvalidProof.into()))
     );
     assert!(!s.pool.is_nullifier_spent(&nullifier(&s)));
+}
+
+#[test]
+fn withdraw_rejects_a_changed_relayer_or_fee() {
+    let s = setup();
+    fund(&s);
+    let (proof, root, nullifier) = (proof(&s.env), root(&s), nullifier(&s));
+    for (relayer, fee, error) in [
+        (&s.user, FEE, Error::InvalidProof),
+        (&s.relayer, FEE + 1, Error::InvalidProof),
+        (&s.relayer, -1, Error::InvalidFee),
+        (&s.relayer, DENOMINATION + 1, Error::InvalidFee),
+    ] {
+        assert_eq!(
+            s.pool.try_withdraw(&proof, &root, &nullifier, &s.recipient, relayer, &fee),
+            Err(Ok(error.into()))
+        );
+    }
 }
 
 #[test]
@@ -149,7 +171,9 @@ fn withdraw_rejects_another_nullifier() {
             &proof(&s.env),
             &root(&s),
             &BytesN::from_array(&s.env, &[1; 32]),
-            &s.recipient
+            &s.recipient,
+            &s.relayer,
+            &FEE
         ),
         Err(Ok(Error::InvalidProof.into()))
     );
@@ -159,7 +183,7 @@ fn withdraw_rejects_another_nullifier() {
 fn withdraw_rejects_an_unknown_root() {
     let s = setup();
     assert_eq!(
-        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient),
+        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient, &s.relayer, &FEE),
         Err(Ok(Error::UnknownRoot.into()))
     );
 }
@@ -176,7 +200,7 @@ fn recent_roots_stay_valid_and_old_ones_expire() {
     s.env.cost_estimate().budget().reset_unlimited();
     add(0, 30);
     assert_eq!(
-        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.user),
+        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.user, &s.relayer, &FEE),
         Err(Ok(Error::InvalidProof.into())) // root accepted
     );
     for i in 30..110u8 {
@@ -185,7 +209,7 @@ fn recent_roots_stay_valid_and_old_ones_expire() {
         s.pool.deposit(&s.user, &BytesN::from_array(&s.env, &leaf));
     }
     assert_eq!(
-        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient),
+        s.pool.try_withdraw(&proof(&s.env), &root(&s), &nullifier(&s), &s.recipient, &s.relayer, &FEE),
         Err(Ok(Error::UnknownRoot.into()))
     );
     assert_eq!(s.pool.leaves(&0).len(), MAX_PAGE);

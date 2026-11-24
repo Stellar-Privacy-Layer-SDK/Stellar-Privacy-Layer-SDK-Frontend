@@ -15,6 +15,19 @@ export class MerkleTree {
   private levels: string[][] = Array.from({ length: TREE_LEVELS + 1 }, () => []);
   private zeros: string[] = [];
 
+  /** Plain data for storage; every node is public. */
+  toJSON(): string[][] {
+    return this.levels;
+  }
+
+  static async fromJSON(levels: string[][]): Promise<MerkleTree> {
+    const tree = new MerkleTree();
+    await tree.init();
+    if (!Array.isArray(levels) || levels.length !== TREE_LEVELS + 1) throw new Error('Invalid tree');
+    tree.levels = levels;
+    return tree;
+  }
+
   get leaves(): readonly string[] {
     return this.levels[0];
   }

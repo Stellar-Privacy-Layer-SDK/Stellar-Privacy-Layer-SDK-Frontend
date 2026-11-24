@@ -63,17 +63,20 @@ const word = (v) => BigInt(v).toString(16).padStart(64, '0');
 const g1 = ([x, y]) => Buffer.from(word(x) + word(y), 'hex');
 const g2 = ([x, y]) => Buffer.from(word(x[1]) + word(x[0]) + word(y[1]) + word(y[0]), 'hex');
 
-/** Encodes a snarkjs verification key as the contract's `Groth16VKey`. */
-function encodeVerificationKey(vkey) {
-  const fields = {
+/** The fields of the contract's `Groth16VKey` as bytes. */
+export function encodeVerificationKeyParts(vkey) {
+  return {
     alpha_g1: g1(vkey.vk_alpha_1),
     beta_g2: g2(vkey.vk_beta_2),
     delta_g2: g2(vkey.vk_delta_2),
     gamma_g2: g2(vkey.vk_gamma_2),
     ic: vkey.IC.map(g1),
   };
+}
+
+function encodeVerificationKey(vkey) {
   return xdr.ScVal.scvMap(
-    Object.entries(fields).map(
+    Object.entries(encodeVerificationKeyParts(vkey)).map(
       ([key, value]) =>
         new xdr.ScMapEntry({
           key: xdr.ScVal.scvSymbol(key),
