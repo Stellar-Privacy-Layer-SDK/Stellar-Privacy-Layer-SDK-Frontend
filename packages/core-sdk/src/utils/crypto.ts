@@ -1,5 +1,5 @@
 import { bn254 } from '@noble/curves/bn254.js';
-import { x25519 } from '@noble/curves/ed25519.js';
+import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
 import { poseidon, grainGenConstants } from '@noble/curves/abstract/poseidon.js';
@@ -242,6 +242,35 @@ export async function decryptWithKey(encrypted: string, keyMaterial: string): Pr
   const inner = parts.slice(2).join(':');
   const decrypted = await aesDecrypt(inner, key);
   return new TextDecoder().decode(decrypted);
+}
+
+/**
+ * Encrypts to an X25519 public key (hex) using an ephemeral key exchange, so
+ * only the holder of the matching private key can decrypt.
+ */
+export async function sealToPublicKey(data: string, publicKey: string): Promise<string> {
+  const ephemeral = x25519.utils.randomSecretKey();
+  const shared = x25519.getSharedSecret(ephemeral, hexToBytes(publicKey));
+  const sealed = await aesEncrypt(new TextEncoder().encode(data), shared);
+  return `03:${bytesToHex(x25519.getPublicKey(ephemeral))}:${sealed}`;
+}
+
+/** Opens a value produced by {@link sealToPublicKey}. */
+export async function openSealed(sealed: string, privateKey: string): Promise<string> {
+  const [version, ephemeralPublicKey, ...rest] = sealed.split(':');
+  if (version !== '03' || rest.length !== 3) throw new Error('Decryption failed: invalid format');
+  const shared = x25519.getSharedSecret(hexToBytes(privateKey), hexToBytes(ephemeralPublicKey));
+  return new TextDecoder().decode(await aesDecrypt(rest.join(':'), shared));
+}
+
+/** Converts a raw Ed25519 public key (a Stellar account key) to X25519 hex. */
+export function ed25519PublicKeyToX25519(publicKey: Uint8Array): string {
+  return bytesToHex(ed25519.utils.toMontgomery(publicKey));
+}
+
+/** Converts a raw Ed25519 seed (a Stellar secret key) to an X25519 private key in hex. */
+export function ed25519SeedToX25519(seed: Uint8Array): string {
+  return bytesToHex(ed25519.utils.toMontgomerySecret(seed));
 }
 
 export async function generateViewingKeyPair(): Promise<{ publicKey: string; privateKey: string }> {

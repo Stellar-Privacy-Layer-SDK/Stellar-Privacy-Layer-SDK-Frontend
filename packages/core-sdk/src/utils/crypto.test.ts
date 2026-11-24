@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { Keypair } from '@stellar/stellar-sdk';
 import {
   poseidonHash,
   toFieldElement,
+  sealToPublicKey,
+  openSealed,
+  ed25519PublicKeyToX25519,
+  ed25519SeedToX25519,
   sha256,
   generateRandomField,
   generateNullifier,
@@ -236,5 +241,22 @@ describe('encryptWithKey / decryptWithKey (symmetric AES-GCM)', () => {
   it('rejects corrupt encrypted data', async () => {
     await expect(decryptWithKey('invalid', 'key')).rejects.toThrow('invalid format');
     await expect(decryptWithKey('02:bad:data', 'key')).rejects.toThrow();
+  });
+});
+
+describe('sealed encryption', () => {
+  it('is readable only with the recipient private key', async () => {
+    const recipient = await generateViewingKeyPair();
+    const other = await generateViewingKeyPair();
+    const sealed = await sealToPublicKey('secret', recipient.publicKey);
+    expect(await openSealed(sealed, recipient.privateKey)).toBe('secret');
+    await expect(openSealed(sealed, other.privateKey)).rejects.toThrow();
+    await expect(openSealed('02:bad', recipient.privateKey)).rejects.toThrow('invalid format');
+  });
+
+  it('seals to a Stellar account key', async () => {
+    const account = Keypair.random();
+    const sealed = await sealToPublicKey('hi', ed25519PublicKeyToX25519(account.rawPublicKey()));
+    expect(await openSealed(sealed, ed25519SeedToX25519(account.rawSecretKey()))).toBe('hi');
   });
 });
