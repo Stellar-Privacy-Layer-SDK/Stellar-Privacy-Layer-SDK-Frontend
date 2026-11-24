@@ -48,7 +48,7 @@ describe('SnarkjsProver', () => {
     ).rejects.toThrow('not ready');
   });
 
-  it('throws on generateWithdrawalProof when not ready', async () => {
+  it('throws on generateWithdrawalProof (not supported)', async () => {
     const p = new SnarkjsProver();
     await p.initialize();
     await expect(
@@ -59,7 +59,7 @@ describe('SnarkjsProver', () => {
         'GA' + 'X'.repeat(54),
         '100',
       ),
-    ).rejects.toThrow('not ready');
+    ).rejects.toThrow('membership circuit');
   });
 
   it('throws on generateDisclosureProof (not supported)', async () => {
@@ -102,7 +102,7 @@ describe('SnarkjsProver', () => {
 
   describe('with mocked snarkjs artifacts', () => {
     beforeEach(() => {
-      mockFullProve.mockResolvedValue({ proof, publicSignals: ['a', 'b', 'c'] });
+      mockFullProve.mockResolvedValue({ proof, publicSignals: ['456', '789'] });
       mockVerify.mockResolvedValue(true);
     });
 
@@ -119,10 +119,10 @@ describe('SnarkjsProver', () => {
         { amount: '100', token: 'USDC', recipient: 'GA' + 'X'.repeat(54) },
         'super-secret',
       );
-      expect(result.commitment).toMatch(/^[0-9a-f]{64}$/);
-      expect(result.nullifier).toMatch(/^[0-9a-f]{64}$/);
+      expect(result.commitment).toMatch(/^0x[0-9a-f]{64}$/);
+      expect(result.nullifier).toMatch(/^0x[0-9a-f]{64}$/);
       // publicInputs mirror the circuit's public signals verbatim.
-      expect(result.publicInputs).toEqual(['a', 'b', 'c']);
+      expect(result.publicInputs).toEqual(['456', '789']);
       expect(result.proof.protocol).toBe('groth16');
       expect(mockFullProve).toHaveBeenCalled();
     });
@@ -135,21 +135,17 @@ describe('SnarkjsProver', () => {
         { amount: '100', token: 'USDC', recipient: 'GA' + 'X'.repeat(54) },
         'super-secret',
       );
-      expect(result.commitment).toBe(BigInt('456').toString(16).padStart(64, '0'));
-      expect(result.nullifier).toBe(BigInt('789').toString(16).padStart(64, '0'));
+      expect(result.commitment).toBe('0x' + BigInt('456').toString(16).padStart(64, '0'));
+      expect(result.nullifier).toBe('0x' + BigInt('789').toString(16).padStart(64, '0'));
     });
 
-    it('generates a withdrawal proof', async () => {
+    it('rejects circuits without commitment and nullifier outputs', async () => {
+      mockFullProve.mockResolvedValue({ proof, publicSignals: [] });
       const p = new SnarkjsProver(artifacts);
       await p.initialize();
-      const result = await p.generateWithdrawalProof(
-        '0x' + 'a'.repeat(64),
-        '0x' + 'b'.repeat(64),
-        ['0x' + 'c'.repeat(64)],
-        'GA' + 'X'.repeat(54),
-        '50',
-      );
-      expect(result.protocol).toBe('groth16');
+      await expect(
+        p.generateShieldedProof({ amount: '1', token: 'USDC', recipient: 'G' }, '0x1'),
+      ).rejects.toThrow('did not output');
     });
 
     it('verifies a proof through snarkjs', async () => {
@@ -211,8 +207,8 @@ describe('SnarkjsProver', () => {
 
 describe('toFieldHex', () => {
   it('converts decimal field strings to padded hex', () => {
-    expect(toFieldHex('456')).toBe(BigInt('456').toString(16).padStart(64, '0'));
-    expect(toFieldHex('0')).toBe('0'.repeat(64));
+    expect(toFieldHex('456')).toBe('0x' + BigInt('456').toString(16).padStart(64, '0'));
+    expect(toFieldHex('0')).toBe('0x' + '0'.repeat(64));
   });
 
   it('rejects non-numeric and empty signals', () => {
