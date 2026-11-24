@@ -1,6 +1,7 @@
 import { StellarClient } from '../stellar/client';
 import { ProofGenerator } from './proof-generator';
 import {
+  Network,
   ShieldedTransferParams,
   ShieldedTransferResult,
   Commitment,
@@ -107,7 +108,17 @@ export class ShieldedTransfer {
     }
   }
 
+  private requireSecureProver(): void {
+    if (
+      this.proofGenerator.isSimulated() &&
+      this.client.getNetworkConfig().network === Network.PUBLIC
+    ) {
+      throw new Error('The simulated prover is insecure and cannot be used on the public network');
+    }
+  }
+
   async deposit(params: ShieldedTransferParams): Promise<ShieldedTransferResult> {
+    this.requireSecureProver();
     this.validateDepositParams(params);
     this.emit('onTransferInitiated', params);
 
@@ -190,6 +201,7 @@ export class ShieldedTransfer {
     recipient: string,
     amount: string,
   ): Promise<ShieldedTransferResult> {
+    this.requireSecureProver();
     const commitment = this.commitments.get(commitmentHash);
     if (!commitment) {
       throw new Error('Commitment not found. Deposit must be made first.');

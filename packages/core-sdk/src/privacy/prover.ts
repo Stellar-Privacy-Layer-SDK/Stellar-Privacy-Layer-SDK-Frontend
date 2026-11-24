@@ -8,6 +8,8 @@ export interface ProverArtifacts {
 }
 
 export interface Prover {
+  /** True for provers whose proofs carry no security. Refused on mainnet. */
+  readonly simulated?: boolean;
   initialize(): Promise<void>;
   isReady(): boolean;
   generateShieldedProof(params: ShieldedTransferParams, secret: string): Promise<{

@@ -22,12 +22,13 @@ const Fr = bn254.fields.Fr;
  * security-sensitive environment.
  */
 export class SimulatedProver implements Prover {
+  readonly simulated = true;
   private initialized = false;
   private static warned = false;
 
   async initialize(): Promise<void> {
     if (!SimulatedProver.warned) {
-      logger.warn(
+      logger.error(
         'Using simulated (fake) ZK prover. Generated proofs provide NO security ' +
         'guarantees. Use SnarkjsProver with real circuit artifacts for production.',
       );

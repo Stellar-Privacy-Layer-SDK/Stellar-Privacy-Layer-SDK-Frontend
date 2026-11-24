@@ -14,6 +14,10 @@ export class ProofGenerator {
     await this.prover.initialize();
   }
 
+  isSimulated(): boolean {
+    return this.prover.simulated ?? false;
+  }
+
   isReady(): boolean {
     return this.prover.isReady();
   }

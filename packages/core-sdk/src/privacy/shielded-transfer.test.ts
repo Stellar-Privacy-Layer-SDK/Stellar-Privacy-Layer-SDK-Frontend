@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { ShieldedTransfer } from './shielded-transfer';
 import { StellarClient } from '../stellar/client';
+import { NETWORK_CONFIGS } from '../stellar/config';
+import { Network } from '../types';
 import { createMemoryStorageProvider } from '../utils/storage';
 
 const KEY = () => Keypair.random().publicKey();
@@ -120,6 +122,17 @@ describe('ShieldedTransfer', () => {
     ).rejects.toThrow();
     expect(failed).toHaveBeenCalledTimes(1);
     expect(await strict.getTransactionHistory()).toEqual([]);
+  });
+
+  it('refuses the simulated prover on the public network', async () => {
+    const mainnet = new StellarClient({ network: NETWORK_CONFIGS[Network.PUBLIC] });
+    const t = new ShieldedTransfer(mainnet, createMemoryStorageProvider(), undefined, {
+      simulateOnFailure: true,
+    });
+    await expect(t.deposit({ amount: '1', token: 'USDC', recipient: KEY() })).rejects.toThrow(
+      'simulated prover is insecure',
+    );
+    await expect(t.withdraw('0x1', KEY(), '1')).rejects.toThrow('simulated prover is insecure');
   });
 
   describe('input validation', () => {
