@@ -165,15 +165,17 @@ describe('StellarClient', () => {
     expect(result).toBe('mock_hash');
   });
 
-  it('falls back to status when no hash is returned', async () => {
-    serverBehaviors.sendTransaction = () => ({ status: 'PENDING' });
+  it.each(['ERROR', 'TRY_AGAIN_LATER'])('throws when the network answers %s', async (status) => {
+    serverBehaviors.sendTransaction = () => ({ status, hash: 'rejected' });
     client.connectWallet('GA' + 'X'.repeat(54));
     client.setContractId(validContractId);
-    const result = await client.withdrawCommitment(
-      '0x' + 'b'.repeat(64), ['0x' + 'c'.repeat(64)], 'GA' + 'X'.repeat(54), '{}',
-    );
-    expect(result).toBe('PENDING');
-    serverBehaviors.sendTransaction = () => ({ status: 'SUCCESS', hash: 'mock_hash' });
+    try {
+      await expect(
+        client.depositCommitment('0x' + 'b'.repeat(64), '1', 'USDC'),
+      ).rejects.toThrow(status);
+    } finally {
+      serverBehaviors.sendTransaction = () => ({ status: 'PENDING', hash: 'mock_hash' });
+    }
   });
 
   it('reports a rejected signature', async () => {

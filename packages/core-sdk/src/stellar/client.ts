@@ -166,7 +166,10 @@ export class StellarClient extends EventEmitter {
     );
 
     const sendResponse = await this.rpc.sendTransaction(signedTransaction);
-    const txHash = sendResponse.hash ?? sendResponse.status;
+    if (sendResponse.status === 'ERROR' || sendResponse.status === 'TRY_AGAIN_LATER') {
+      throw new Error(`Transaction rejected by the network: ${sendResponse.status}`);
+    }
+    const txHash = sendResponse.hash;
     logger.info('Transaction submitted', {
       method,
       network: this.config.network.network,
