@@ -150,6 +150,7 @@ export class ShieldedTransfer {
       this.commitments.set(commitmentHash, commitment);
 
       const tx: ShieldedTransaction = {
+        type: 'deposit',
         txHash,
         commitmentHash,
         nullifier,
@@ -258,6 +259,17 @@ export class ShieldedTransfer {
     }
 
     this.commitments.delete(commitmentHash);
+    this.transactions.push({
+      type: 'withdrawal',
+      txHash,
+      commitmentHash,
+      nullifier,
+      amount,
+      token: commitment.token,
+      recipient,
+      timestamp: Date.now(),
+      status: 'pending',
+    });
     await this.persistState();
 
     const result: ShieldedTransferResult = {

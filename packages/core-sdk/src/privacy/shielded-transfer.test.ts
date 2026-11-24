@@ -166,6 +166,8 @@ describe('ShieldedTransfer', () => {
       );
       expect(result.txHash).toBeTruthy();
       expect(result.nullifier).toBe(deposit.nullifier);
+      const history = await transfer.getTransactionHistory();
+      expect(history.find((tx) => tx.txHash === result.txHash)?.type).toBe('withdrawal');
       expect(await transfer.getCommitment(deposit.commitmentHash)).toBeUndefined();
     });
 

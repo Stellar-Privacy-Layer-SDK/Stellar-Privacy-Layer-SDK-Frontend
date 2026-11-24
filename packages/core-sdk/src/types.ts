@@ -108,6 +108,8 @@ export interface DisclosurePayload {
 }
 
 export interface ShieldedTransaction {
+  /** Absent on records saved before withdrawals were tracked (all deposits). */
+  type?: 'deposit' | 'withdrawal';
   txHash: string;
   commitmentHash: string;
   nullifier: string;
