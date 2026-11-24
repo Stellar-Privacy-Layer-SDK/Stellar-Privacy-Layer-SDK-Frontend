@@ -87,5 +87,6 @@ jobs:
       - run: npm run build:contract
       - run: npm run build:sdk
       - name: Wait for the network
-        run: timeout 240 bash -c 'until curl -s -H "content-type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}" localhost:8000/soroban/rpc | grep -q healthy && curl -s -o /dev/null -w "%{http_code}" localhost:8000/friendbot | grep -qv 502; do sleep 3; done'
+        run: |
+          timeout 240 bash -c 'until curl -s -H "content-type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}" localhost:8000/soroban/rpc | grep -q healthy && curl -s -o /dev/null -w "%{http_code}" localhost:8000/friendbot | grep -qv 502; do sleep 3; done'
       - run: npm run test:e2e
