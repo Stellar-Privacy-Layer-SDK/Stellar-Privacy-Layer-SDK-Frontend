@@ -66,11 +66,9 @@ vi.mock('@stellar/stellar-sdk', async () => {
   };
 });
 
-vi.mock('@stellar/freighter-api', () => ({
-  signTransaction: () => Promise.resolve({
-    signedTxXdr: 'AAAA...', signerAddress: 'GA' + 'X'.repeat(54),
-  }),
-}));
+const signed = { signedTxXdr: 'AAAA...', signerAddress: 'GA' + 'X'.repeat(54) };
+const { signTransaction } = vi.hoisted(() => ({ signTransaction: vi.fn() }));
+vi.mock('@stellar/freighter-api', () => ({ signTransaction }));
 
 describe('StellarClient', () => {
   let client: StellarClient;
@@ -81,6 +79,7 @@ describe('StellarClient', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    signTransaction.mockResolvedValue(signed);
   });
 
   afterEach(() => {
@@ -175,6 +174,15 @@ describe('StellarClient', () => {
     );
     expect(result).toBe('PENDING');
     serverBehaviors.sendTransaction = () => ({ status: 'SUCCESS', hash: 'mock_hash' });
+  });
+
+  it('reports a rejected signature', async () => {
+    signTransaction.mockResolvedValue({ ...signed, error: { code: -4, message: 'User declined' } });
+    client.connectWallet('GA' + 'X'.repeat(54));
+    client.setContractId(validContractId);
+    await expect(
+      client.depositCommitment('0x' + 'a'.repeat(64), '100', 'USDC'),
+    ).rejects.toThrow('User declined');
   });
 
   it('throws when sending a transaction without a wallet', async () => {

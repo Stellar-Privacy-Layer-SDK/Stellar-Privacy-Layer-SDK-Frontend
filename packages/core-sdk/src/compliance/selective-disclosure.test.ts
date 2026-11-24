@@ -10,6 +10,10 @@ import { Network } from '../types';
 
 const validContractId = StrKey.encodeContract(Buffer.alloc(32, 0x01));
 
+vi.mock('@stellar/freighter-api', () => ({
+  signTransaction: async () => ({ signedTxXdr: 'AAAA...', signerAddress: '' }),
+}));
+
 vi.mock('@stellar/stellar-sdk', async () => {
   const actual = await vi.importActual('@stellar/stellar-sdk');
 

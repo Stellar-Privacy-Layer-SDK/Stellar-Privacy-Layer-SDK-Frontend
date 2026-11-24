@@ -155,6 +155,9 @@ export class StellarClient extends EventEmitter {
       networkPassphrase: this.config.network.networkPassphrase,
     });
 
+    if (typeof signedResult !== 'string' && signedResult.error) {
+      throw new Error(`Transaction signing failed: ${signedResult.error.message}`);
+    }
     const signedXdr = typeof signedResult === 'string' ? signedResult : signedResult.signedTxXdr;
 
     const signedTransaction = TransactionBuilder.fromXDR(
