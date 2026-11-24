@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createLocalStorageProvider, createMemoryStorageProvider } from './storage';
+import { logger } from './logger';
 import type { StorageProvider } from '../types';
 
 function runStorageTests(label: string, createProvider: () => StorageProvider) {
@@ -102,13 +103,28 @@ describe('LocalStorageProvider', () => {
     expect(backing.has('stellar-privacy:k1')).toBe(false);
   });
 
+  it('keeps rejected writes for the session and logs a warning', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const storage = createLocalStorageProvider();
+    ls.setItem.mockImplementation(() => { throw new Error('quota exceeded'); });
+    await storage.set('k', 'v');
+    expect(await storage.get('k')).toBe('v');
+    expect(warn).toHaveBeenCalledWith(
+      'localStorage operation failed',
+      expect.objectContaining({ operation: 'set', error: 'quota exceeded' }),
+    );
+    await storage.remove('k');
+    expect(await storage.get('k')).toBeNull();
+    warn.mockRestore();
+  });
+
   it('survives storage failures without throwing', async () => {
     const storage = createLocalStorageProvider();
     ls.setItem.mockImplementation(() => { throw new Error('quota exceeded'); });
     await expect(storage.set('k', 'v')).resolves.toBeUndefined();
 
     ls.getItem.mockImplementation(() => { throw new Error('denied'); });
-    expect(await storage.get('k')).toBeNull();
+    expect(await storage.get('unset')).toBeNull();
 
     ls.removeItem.mockImplementation(() => { throw new Error('denied'); });
     await expect(storage.remove('k')).resolves.toBeUndefined();
