@@ -84,7 +84,7 @@ describe('PrivacySDK — Full Flow', () => {
   });
 
   it('executes compliance disclosure flow', async () => {
-    const regulatorKey = 'GA' + 'C'.repeat(54);
+    const regulatorKey = KEY();
     await sdk.viewingKeys.grantViewingKey(regulatorKey, 'full');
     const hash = await sdk.selectiveDisclosure.discloseToRegulator([], regulatorKey, 'amount-only');
     expect(hash).toBeTruthy();

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { Keypair } from '@stellar/stellar-sdk';
 import { SelectiveDisclosure } from './selective-disclosure';
 import { ViewingKeyManager } from './viewing-keys';
 import { ProofGenerator } from '../privacy/proof-generator';
@@ -106,7 +107,7 @@ describe('SelectiveDisclosure', () => {
   });
 
   it('verifies signed payloads using the viewing key signature', async () => {
-    const regulator = 'GA' + 'W'.repeat(54);
+    const regulator = Keypair.random().publicKey();
     await vk.grantViewingKey(regulator, 'full');
     const req: ComplianceDisclosureRequest = {
       regulatorPublicKey: regulator,

@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events';
+import { StrKey } from '@stellar/stellar-sdk';
 import { ViewingKey, DisclosurePayload } from '../types';
-import { generateViewingKeyPair, encryptWithKey, poseidonHash } from '../utils/crypto';
+import { generateViewingKeyPair, sealToPublicKey, ed25519PublicKeyToX25519, poseidonHash } from '../utils/crypto';
+import { isValidPublicKey } from '../utils/encoding';
 import { createLocalStorageProvider } from '../utils/storage';
 import type { StorageProvider } from '../types';
 
@@ -48,7 +50,7 @@ export class ViewingKeyManager extends EventEmitter {
       id: keyId,
       label,
       publicKey: keyPair.publicKey,
-      encryptedPrivateKey: await encryptWithKey(keyPair.privateKey, keyPair.publicKey),
+      encryptedPrivateKey: await sealToPublicKey(keyPair.privateKey, keyPair.publicKey),
       createdAt: Date.now(),
       expiresAt,
       grantedBy: 'self',
@@ -69,10 +71,16 @@ export class ViewingKeyManager extends EventEmitter {
     scope: ViewingKey['scope'] = 'full',
     expiresAt?: number,
   ): Promise<ViewingKey> {
+    if (!isValidPublicKey(recipientPublicKey)) {
+      throw new Error('Invalid recipient: must be a valid Stellar public key (G...)');
+    }
     const keyPair = await generateViewingKeyPair();
     const keyId = await poseidonHash([keyPair.publicKey, Date.now().toString()]);
 
-    const encryptedKey = await encryptWithKey(keyPair.privateKey, recipientPublicKey);
+    const encryptedKey = await sealToPublicKey(
+      keyPair.privateKey,
+      ed25519PublicKeyToX25519(StrKey.decodeEd25519PublicKey(recipientPublicKey)),
+    );
 
     const viewingKey: ViewingKey = {
       id: keyId,

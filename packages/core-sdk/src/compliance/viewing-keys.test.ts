@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { Keypair } from '@stellar/stellar-sdk';
+import { openSealed, ed25519SeedToX25519 } from '../utils/crypto';
 import { ViewingKeyManager } from './viewing-keys';
 import { createMemoryStorageProvider } from '../utils/storage';
 
@@ -31,10 +33,18 @@ describe('ViewingKeyManager', () => {
 
   describe('grantViewingKey', () => {
     it('grants a key to a recipient', async () => {
-      const key = await vk.grantViewingKey('GA' + 'X'.repeat(54), 'full');
-      expect(key.grantedBy).toBe('GA' + 'X'.repeat(54));
+      const recipient = Keypair.random();
+      const key = await vk.grantViewingKey(recipient.publicKey(), 'full');
+      expect(key.grantedBy).toBe(recipient.publicKey());
+      expect(
+        await openSealed(key.encryptedPrivateKey, ed25519SeedToX25519(recipient.rawSecretKey())),
+      ).toBe(vk.getPrivateKey(key.id));
       expect(key.active).toBe(true);
     });
+  });
+
+  it('rejects granting to an invalid key', async () => {
+    await expect(vk.grantViewingKey('nope')).rejects.toThrow('Invalid recipient');
   });
 
   describe('getViewingKey / getAllViewingKeys', () => {
