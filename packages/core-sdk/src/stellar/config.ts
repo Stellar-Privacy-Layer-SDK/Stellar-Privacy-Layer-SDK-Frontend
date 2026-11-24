@@ -18,14 +18,14 @@ export const NETWORK_CONFIGS: Record<Network, NetworkConfig> = {
   [Network.FUTURENET]: {
     network: Network.FUTURENET,
     rpcUrl: 'https://rpc-futurenet.stellar.org',
-    networkPassphrase: 'Future Stellar Network ; September 2025',
+    networkPassphrase: 'Test SDF Future Network ; October 2022',
     contractId: '',
     horizonUrl: 'https://horizon-futurenet.stellar.org',
   },
   [Network.SANDBOX]: {
     network: Network.SANDBOX,
     rpcUrl: 'http://localhost:8000/soroban/rpc',
-    networkPassphrase: 'Local Sandbox Stellar Network ; September 2025',
+    networkPassphrase: 'Standalone Network ; February 2017',
     contractId: '',
     horizonUrl: 'http://localhost:8000',
   },
