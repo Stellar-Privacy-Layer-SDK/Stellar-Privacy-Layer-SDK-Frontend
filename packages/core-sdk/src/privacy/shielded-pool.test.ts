@@ -30,7 +30,7 @@ function fakeChain() {
   const client = {
     getNetworkConfig: vi.fn(() => ({ network: Network.TESTNET, contractId: CONTRACT })),
     getPoolInfo: vi.fn(async () => ({
-      token: 'CTOKEN', denomination: '1000000000', depositCount: leaves.length, root: await rootOf(leaves),
+      token: 'CTOKEN', decimals: 7, denomination: '1000000000', depositCount: leaves.length, root: await rootOf(leaves),
     })),
     getLeaves: vi.fn(async (start = 0) => leaves.slice(start)),
     isNullifierSpent: vi.fn(async (n: string) => spent.has(n)),

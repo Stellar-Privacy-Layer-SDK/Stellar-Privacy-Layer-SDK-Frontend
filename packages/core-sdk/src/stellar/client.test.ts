@@ -210,7 +210,7 @@ describe('StellarClient', () => {
     });
 
     it('decodes the pool info', async () => {
-      serverBehaviors.simulateTransaction = () =>
+      const replies = [
         reply(
           nativeToScVal(
             { token: validContractId, denomination: 50n, next_index: 3, root: Buffer.alloc(32, 1) },
@@ -223,9 +223,13 @@ describe('StellarClient', () => {
               },
             },
           ),
-        );
+        ),
+        reply(xdr.ScVal.scvU32(6)),
+      ];
+      serverBehaviors.simulateTransaction = () => replies.shift();
       expect(await client.getPoolInfo()).toEqual({
         token: validContractId,
+        decimals: 6,
         denomination: '50',
         depositCount: 3,
         root: '0x' + '01'.repeat(32),

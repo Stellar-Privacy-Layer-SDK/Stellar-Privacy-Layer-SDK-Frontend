@@ -13,14 +13,13 @@ import type { Prover } from './prover.js';
 
 const NOTES_KEY = 'notes';
 const TRANSACTIONS_KEY = 'transactions';
-const TOKEN_DECIMALS = 7;
 /** Transactions are valid for 30 seconds; after this they cannot succeed. */
 const EXPIRY_MS = 5 * 60_000;
 
 /**
  * Deposits to and withdrawals from the shielded pool contract.
  *
- * Note secrets are kept in `storage` unencrypted: losing them loses the funds,
+ * Note secrets are kept in `storage`, so pass an encrypted one: losing them loses the funds,
  * and leaking them lets others spend. Emits `change` when state changes.
  */
 export class ShieldedPool extends EventEmitter {
@@ -108,7 +107,7 @@ export class ShieldedPool extends EventEmitter {
       network,
       contractId,
       token: info.token,
-      amount: formatUnits(info.denomination, TOKEN_DECIMALS),
+      amount: formatUnits(info.denomination, info.decimals),
       status,
       timestamp: Date.now(),
     };

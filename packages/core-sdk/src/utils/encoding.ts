@@ -40,6 +40,7 @@ export function truncateAddress(address: string, chars: number = 6): string {
 }
 
 export function formatUnits(amount: string, decimals: number): string {
+  if (decimals === 0) return amount;
   const padded = amount.padStart(decimals + 1, '0');
   const integerPart = padded.slice(0, -decimals) || '0';
   const fractionalPart = padded.slice(-decimals);

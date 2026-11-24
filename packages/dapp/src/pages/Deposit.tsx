@@ -58,7 +58,7 @@ export function Deposit() {
         {info && (
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <dt className="text-gray-400">Amount</dt>
-            <dd className="text-white">{formatUnits(info.denomination, 7)}</dd>
+            <dd className="text-white">{formatUnits(info.denomination, info.decimals)}</dd>
             <dt className="text-gray-400">Token</dt>
             <dd className="text-white font-mono">{truncateAddress(info.token)}</dd>
             <dt className="text-gray-400">Deposits in pool</dt>

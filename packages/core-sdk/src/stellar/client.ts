@@ -46,6 +46,7 @@ export class StellarClient extends EventEmitter {
   private contract: Contract | null = null;
   private config: SDKConfig;
   private walletInfo: WalletInfo | null = null;
+  private decimals = new Map<string, number>();
   private signer: TransactionSigner;
   private networkConfigs = new Map<Network, NetworkConfig>();
 
@@ -78,7 +79,7 @@ export class StellarClient extends EventEmitter {
     return this.walletInfo?.isConnected ?? false;
   }
 
-  async connectWallet(publicKey: string, network: Network = Network.TESTNET): Promise<WalletInfo> {
+  async connectWallet(publicKey: string, network: Network = this.config.network.network): Promise<WalletInfo> {
     if (!publicKey) {
       throw new Error('Cannot connect wallet: public key is required');
     }
@@ -203,9 +204,13 @@ export class StellarClient extends EventEmitter {
   }
 
   async callContract(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal> {
+    return this.read(this.getContract(), method, args);
+  }
+
+  private async read(contract: Contract, method: string, args: xdr.ScVal[]): Promise<xdr.ScVal> {
     this.requireWallet();
 
-    const operation = this.getContract().call(method, ...args);
+    const operation = contract.call(method, ...args);
     const transaction = (await this.buildTransaction(operation)).build();
 
     const result = await this.rpc.simulateTransaction(transaction);
@@ -240,8 +245,15 @@ export class StellarClient extends EventEmitter {
       next_index: number;
       root: Uint8Array;
     };
+    let decimals = this.decimals.get(info.token);
+    if (decimals === undefined) {
+      const value = await this.read(new Contract(info.token), 'decimals', []);
+      decimals = scValToNative(value) as number;
+      this.decimals.set(info.token, decimals);
+    }
     return {
       token: info.token,
+      decimals,
       denomination: info.denomination.toString(),
       depositCount: info.next_index,
       root: '0x' + toHex(info.root),

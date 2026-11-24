@@ -15,7 +15,7 @@ describe('Deposit', () => {
     mocks.useWallet.mockReturnValue({ walletInfo: { isConnected: true } });
     mocks.usePool.mockReturnValue({ isProcessing: false, error: null, deposit: mocks.deposit });
     mocks.getInfo.mockResolvedValue({
-      token: 'CTOKEN', denomination: '1000000000', depositCount: 7, root: '0x0',
+      token: 'CTOKEN', decimals: 7, denomination: '1000000000', depositCount: 7, root: '0x0',
     });
     mocks.deposit.mockResolvedValue({ txHash: 't', note: { commitment: '0x1' } });
   });
