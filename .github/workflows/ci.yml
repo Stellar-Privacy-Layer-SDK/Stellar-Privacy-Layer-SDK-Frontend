@@ -65,15 +65,27 @@ jobs:
       - run: cargo test
         working-directory: packages/contract
 
-  circuit:
+  e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/contract
+      - run: docker run -d --name stellar -p 8000:8000 stellar/quickstart:latest --local --limits testnet
       - run: npm ci
       - run: npm run build:circuits
-      - run: npm test -w packages/core-sdk -- snarkjs-prover.integration
+      - run: npm test -w packages/core-sdk -- shielded-pool
+      - run: npm run build:contract
+      - run: npm run build:sdk
+      - name: Wait for the network
+        run: timeout 240 bash -c 'until curl -s -H "content-type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}" localhost:8000/soroban/rpc | grep -q healthy && curl -s -o /dev/null -w "%{http_code}" localhost:8000/friendbot | grep -qv 502; do sleep 3; done'
+      - run: npm run test:e2e

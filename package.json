@@ -32,7 +32,10 @@
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "deploy": "bash scripts/deploy.sh up",
-    "build:circuits": "node scripts/build-circuits.mjs"
+    "build:circuits": "node scripts/build-circuits.mjs",
+    "build:contract": "cd packages/contract && cargo build --release --target wasm32v1-none",
+    "test:e2e": "node scripts/e2e.mjs",
+    "deploy:pool": "node scripts/deploy-pool.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
