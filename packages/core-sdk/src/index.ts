@@ -4,6 +4,7 @@ import { ShieldedPool } from './privacy/shielded-pool.js';
 import { ViewingKeyManager } from './compliance/viewing-keys.js';
 import { SelectiveDisclosure } from './compliance/selective-disclosure.js';
 import { setLogLevel } from './utils/logger.js';
+import type { Relayer } from './privacy/relayer.js';
 import type { Prover } from './privacy/prover.js';
 import type { NetworkConfig, StorageProvider, LogLevel } from './types.js';
 
@@ -20,6 +21,12 @@ export { recipientField } from './stellar/abi.js';
 export { ViewingKeyManager } from './compliance/viewing-keys.js';
 export { SelectiveDisclosure } from './compliance/selective-disclosure.js';
 export type { Prover, ProverArtifacts, WithdrawalStatement } from './privacy/prover.js';
+export {
+  HttpRelayer,
+  parseWithdrawalRequest,
+  type Relayer,
+  type WithdrawalRequest,
+} from './privacy/relayer.js';
 export { SnarkjsProver } from './privacy/snarkjs-prover.js';
 export {
   resolveArtifacts,
@@ -45,6 +52,8 @@ export interface PrivacySDKOptions {
   logLevel?: LogLevel;
   /** Prover for withdrawals. Deposits work without one. */
   prover?: Prover;
+  /** Submits withdrawals so the connected account is not revealed. */
+  relayer?: Relayer;
   /** Signs transactions. Defaults to the Freighter wallet. */
   signer?: TransactionSigner;
 }
@@ -61,13 +70,13 @@ export class PrivacySDK {
   public selectiveDisclosure: SelectiveDisclosure;
 
   constructor(options: PrivacySDKOptions = {}) {
-    const { network, storageProvider, logLevel, prover, signer } = options;
+    const { network, storageProvider, logLevel, prover, signer, relayer } = options;
 
     if (logLevel) setLogLevel(logLevel);
 
     this.client = new StellarClient({ network, storageProvider, signer });
     this.wallet = new WalletManager({ network, storageProvider });
-    this.pool = new ShieldedPool(this.client, prover, storageProvider);
+    this.pool = new ShieldedPool(this.client, prover, storageProvider, relayer);
     this.viewingKeys = new ViewingKeyManager(storageProvider);
     this.selectiveDisclosure = new SelectiveDisclosure(this.viewingKeys);
   }

@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "🔒 Stellar Privacy Layer — Confidential Transfers SDK",
+  "description": "\ud83d\udd12 Stellar Privacy Layer \u2014 Confidential Transfers SDK",
   "workspaces": [
     "packages/core-sdk",
-    "packages/dapp"
+    "packages/dapp",
+    "packages/relayer"
   ],
   "engines": {
     "node": ">=22.12.0",
@@ -20,14 +21,14 @@
     "dev:sdk": "npm run dev -w packages/core-sdk",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "npm run typecheck --workspaces",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces",
     "test:sdk": "npm run test -w packages/core-sdk",
     "test:dapp": "npm run test -w packages/dapp",
-    "test:coverage": "npm run test:coverage --workspaces",
+    "test:coverage": "npm run test:coverage --workspaces --if-present && npm test -w packages/relayer",
     "audit": "npm audit --audit-level=high",
     "verify": "npm run lint && npm run typecheck && npm run test:coverage && npm run build",
-    "clean": "npm run clean --workspaces",
+    "clean": "npm run clean --workspaces --if-present",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",

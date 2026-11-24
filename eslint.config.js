@@ -12,8 +12,8 @@ export default tseslint.config(
     },
   },
   {
-    files: ['scripts/**/*.mjs'],
-    languageOptions: { globals: { console: 'readonly', process: 'readonly', fetch: 'readonly', Buffer: 'readonly', URL: 'readonly' } },
+    files: ['scripts/**/*.mjs', 'packages/relayer/*.mjs', 'e2e/**/*.mjs'],
+    languageOptions: { globals: { console: 'readonly', process: 'readonly', fetch: 'readonly', Buffer: 'readonly', URL: 'readonly', setTimeout: 'readonly' } },
   },
   {
     ignores: ['**/dist/**', '**/node_modules/**', 'build/**', 'artifacts/**', '**/coverage/**'],

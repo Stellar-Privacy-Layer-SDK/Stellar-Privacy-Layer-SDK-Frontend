@@ -168,6 +168,17 @@ describe('ShieldedPool', () => {
     expect(merkleProof.root).toBe(await rootOf(chain.leaves));
   });
 
+  it('withdraws through a relayer when configured', async () => {
+    const relayer = { withdraw: vi.fn(async () => 'relayed') };
+    const pool = new ShieldedPool(chain.client as unknown as StellarClient, prover, storage, relayer);
+    const { note } = await pool.deposit();
+    expect((await pool.withdraw(note.commitment, recipient)).txHash).toBe('relayed');
+    expect(relayer.withdraw).toHaveBeenCalledWith(
+      expect.objectContaining({ proof, nullifier: note.nullifier, recipient }),
+    );
+    expect(chain.client.withdraw).not.toHaveBeenCalled();
+  });
+
   it('backs up and restores notes', async () => {
     const pool = await open();
     const { note } = await pool.deposit();

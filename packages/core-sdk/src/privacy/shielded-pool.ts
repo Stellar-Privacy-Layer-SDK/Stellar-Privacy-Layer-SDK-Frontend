@@ -8,6 +8,7 @@ import { logger } from '../utils/logger.js';
 import { MerkleTree } from '../utils/merkle.js';
 import { createLocalStorageProvider } from '../utils/storage.js';
 import { decodeNote, deriveNote, encodeNote, type Note } from './note.js';
+import type { Relayer } from './relayer.js';
 import type { Prover } from './prover.js';
 
 const NOTES_KEY = 'notes';
@@ -32,6 +33,7 @@ export class ShieldedPool extends EventEmitter {
     private client: StellarClient,
     private prover?: Prover,
     private storage: StorageProvider = createLocalStorageProvider(),
+    private relayer?: Relayer,
   ) {
     super();
   }
@@ -167,7 +169,10 @@ export class ShieldedPool extends EventEmitter {
       merkleProof,
       recipient: recipientField(recipient),
     });
-    const txHash = await this.client.withdraw(proof, merkleProof.root, note.nullifier, recipient);
+    const request = { proof, root: merkleProof.root, nullifier: note.nullifier, recipient };
+    const txHash = this.relayer
+      ? await this.relayer.withdraw(request)
+      : await this.client.withdraw(proof, request.root, request.nullifier, recipient);
     note.status = 'spending';
     this.record('withdrawal', note, txHash, recipient);
     await this.save();
