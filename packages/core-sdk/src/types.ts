@@ -81,6 +81,8 @@ export interface SDKConfig {
 }
 
 export interface StorageProvider {
+  /** True when values are encrypted at rest. */
+  readonly encrypted?: boolean;
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;

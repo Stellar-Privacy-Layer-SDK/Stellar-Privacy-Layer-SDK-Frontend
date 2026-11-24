@@ -34,6 +34,7 @@ export * from './utils/crypto.js';
 export * from './utils/encoding.js';
 export * from './utils/merkle.js';
 export * from './utils/storage.js';
+export * from './utils/encrypted-storage.js';
 
 export interface PrivacySDKOptions {
   /** Override the default (testnet) network configuration. */
