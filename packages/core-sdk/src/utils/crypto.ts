@@ -31,14 +31,18 @@ const _poseidonFn = poseidon({
 function toBigInt(value: string | bigint | number): bigint {
   if (typeof value === 'bigint') return value;
   if (typeof value === 'number') return BigInt(value);
-  const hex = value.startsWith('0x') ? value.slice(2) : value;
-  if (/^[0-9a-fA-F]+$/.test(hex)) return BigInt('0x' + hex);
+  if (/^0x[0-9a-fA-F]+$/.test(value)) return BigInt(value);
   if (/^\d+$/.test(value)) return BigInt(value);
   const encoder = new TextEncoder();
   const bytes = encoder.encode(value);
   let result = 0n;
   for (const b of bytes) result = (result << 8n) + BigInt(b);
   return result;
+}
+
+/** Maps a value to the BN254 scalar field exactly as `poseidonHash` does. */
+export function toFieldElement(value: string | bigint | number): bigint {
+  return Fr.create(toBigInt(value));
 }
 
 /**
@@ -51,7 +55,7 @@ function toBigInt(value: string | bigint | number): bigint {
  * the `token` from commitment hashes.
  */
 export function poseidonHash(inputs: (string | bigint | number)[]): Promise<string> {
-  const fieldEls = inputs.map((i) => Fr.create(toBigInt(i)));
+  const fieldEls = inputs.map(toFieldElement);
   const chunkSize = POSEIDON_T - 1;
 
   let state: bigint[] = [Fr.ZERO, Fr.ZERO, Fr.ZERO];

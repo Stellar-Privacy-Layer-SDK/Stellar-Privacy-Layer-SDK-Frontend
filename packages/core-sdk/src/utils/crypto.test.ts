@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   poseidonHash,
+  toFieldElement,
   sha256,
   generateRandomField,
   generateNullifier,
@@ -114,6 +115,20 @@ describe('generateCommitment', () => {
   it('returns a valid hex commitment', async () => {
     const c = await generateCommitment('secret', 'GA...', '100', 'USDC');
     expect(c).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+});
+
+describe('toFieldElement', () => {
+  it('distinguishes decimal, 0x-prefixed hex and text', () => {
+    expect(toFieldElement('100')).toBe(100n);
+    expect(toFieldElement('0x100')).toBe(256n);
+    expect(toFieldElement('abc')).toBe(0x616263n);
+  });
+
+  it('matches the circomlib Poseidon test vector', async () => {
+    expect(BigInt(await poseidonHash([1, 2]))).toBe(
+      7853200120776062878684798364095072458815029376092732009249414926327459813530n,
+    );
   });
 });
 
