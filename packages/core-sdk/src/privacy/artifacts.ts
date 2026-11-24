@@ -1,11 +1,11 @@
-import type { ProverArtifacts } from './prover';
+import type { ProverArtifacts } from './prover.js';
 
 /**
  * Standard URL layout for hosted Groth16 circuit artifacts. Point
  * `VITE_ZK_ARTIFACTS_URL` at a directory containing these files (e.g. a
  * GitHub Release or CDN) and `resolveArtifactUrls` produces the expected paths.
  *
- * The filenames match what `scripts/build-circuits.sh` outputs.
+ * The filenames match what `npm run build:circuits` outputs.
  */
 export interface CircuitArtifactUrls {
   wasm: string;
@@ -17,8 +17,8 @@ export interface CircuitArtifactUrls {
 export function resolveArtifactUrls(baseUrl: string): CircuitArtifactUrls {
   const base = baseUrl.replace(/\/+$/, '');
   return {
-    wasm: `${base}/shielded_transfer.wasm`,
-    zkey: `${base}/shielded_transfer_final.zkey`,
+    wasm: `${base}/withdraw.wasm`,
+    zkey: `${base}/withdraw_final.zkey`,
     vkey: `${base}/verification_key.json`,
   };
 }

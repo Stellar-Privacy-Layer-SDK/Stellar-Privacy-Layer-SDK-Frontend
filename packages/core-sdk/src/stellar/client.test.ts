@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { StrKey } from '@stellar/stellar-sdk';
-import { StellarClient } from './client';
-import { NETWORK_CONFIGS } from './config';
-import { Network } from '../types';
+import { StrKey, nativeToScVal, xdr } from '@stellar/stellar-sdk';
+import { StellarClient } from './client.js';
+import { NETWORK_CONFIGS } from './config.js';
+import { Network } from '../types.js';
 
+const WALLET = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 0x02));
 const validContractId = StrKey.encodeContract(Buffer.alloc(32, 0x01));
 
 const { serverBehaviors } = vi.hoisted(() => ({
@@ -136,15 +137,15 @@ describe('StellarClient', () => {
   it('does not reuse a contract from another network', async () => {
     const c = new StellarClient();
     c.setContractId(validContractId);
-    await c.connectWallet('GA' + 'X'.repeat(54), Network.PUBLIC);
-    await expect(c.depositCommitment('0x' + 'a'.repeat(64), '1', 'USDC')).rejects.toThrow(
+    await c.connectWallet(WALLET, Network.PUBLIC);
+    await expect(c.deposit('0x' + 'a'.repeat(64))).rejects.toThrow(
       'Contract not set',
     );
     expect(NETWORK_CONFIGS[Network.TESTNET].contractId).toBe('');
   });
 
   it('clears wallet on disconnect', () => {
-    client.connectWallet('GA' + 'X'.repeat(54));
+    client.connectWallet(WALLET);
     client.disconnectWallet();
     expect(client.isConnected()).toBe(false);
     expect(client.getWalletInfo()).toBeNull();
@@ -159,19 +160,19 @@ describe('StellarClient', () => {
   });
 
   it('returns the transaction hash from sendTransaction', async () => {
-    client.connectWallet('GA' + 'X'.repeat(54));
+    client.connectWallet(WALLET);
     client.setContractId(validContractId);
-    const result = await client.depositCommitment('0x' + 'a'.repeat(64), '100', 'USDC');
+    const result = await client.deposit('0x' + 'a'.repeat(64));
     expect(result).toBe('mock_hash');
   });
 
   it.each(['ERROR', 'TRY_AGAIN_LATER'])('throws when the network answers %s', async (status) => {
     serverBehaviors.sendTransaction = () => ({ status, hash: 'rejected' });
-    client.connectWallet('GA' + 'X'.repeat(54));
+    client.connectWallet(WALLET);
     client.setContractId(validContractId);
     try {
       await expect(
-        client.depositCommitment('0x' + 'b'.repeat(64), '1', 'USDC'),
+        client.deposit('0x' + 'b'.repeat(64)),
       ).rejects.toThrow(status);
     } finally {
       serverBehaviors.sendTransaction = () => ({ status: 'PENDING', hash: 'mock_hash' });
@@ -180,42 +181,85 @@ describe('StellarClient', () => {
 
   it('reports a rejected signature', async () => {
     signTransaction.mockResolvedValue({ ...signed, error: { code: -4, message: 'User declined' } });
-    client.connectWallet('GA' + 'X'.repeat(54));
+    client.connectWallet(WALLET);
     client.setContractId(validContractId);
     await expect(
-      client.depositCommitment('0x' + 'a'.repeat(64), '100', 'USDC'),
+      client.deposit('0x' + 'a'.repeat(64)),
     ).rejects.toThrow('User declined');
   });
 
   it('throws when sending a transaction without a wallet', async () => {
     client.setContractId(validContractId);
     await expect(
-      client.depositCommitment('0x' + 'a'.repeat(64), '100', 'USDC'),
+      client.deposit('0x' + 'a'.repeat(64)),
     ).rejects.toThrow('Wallet not connected');
   });
 
-  it('verifies proof via contract call', async () => {
-    client.connectWallet('GA' + 'X'.repeat(54));
-    client.setContractId(validContractId);
-    const result = await client.verifyProof(
-      {
-        pi_a: ['1', '2'],
-        pi_b: [['3', '4'], ['5', '6']],
-        pi_c: ['7', '8'],
+  describe('pool contract', () => {
+    const reply = (value: xdr.ScVal) => ({ status: 'SUCCESS', result: { retval: value } });
+    const bytes = (n: number) => xdr.ScVal.scvBytes(Buffer.alloc(32, n));
+    let previous: typeof serverBehaviors.simulateTransaction;
+
+    beforeEach(async () => {
+      previous = serverBehaviors.simulateTransaction;
+      await client.connectWallet(WALLET);
+      client.setContractId(validContractId);
+    });
+    afterEach(() => {
+      serverBehaviors.simulateTransaction = previous;
+    });
+
+    it('decodes the pool info', async () => {
+      serverBehaviors.simulateTransaction = () =>
+        reply(
+          nativeToScVal(
+            { token: validContractId, denomination: 50n, next_index: 3, root: Buffer.alloc(32, 1) },
+            {
+              type: {
+                token: ['symbol', 'address'],
+                denomination: ['symbol', 'i128'],
+                next_index: ['symbol', 'u32'],
+                root: ['symbol', 'bytes'],
+              },
+            },
+          ),
+        );
+      expect(await client.getPoolInfo()).toEqual({
+        token: validContractId,
+        denomination: '50',
+        depositCount: 3,
+        root: '0x' + '01'.repeat(32),
+      });
+    });
+
+    it('reads leaves page by page', async () => {
+      const pages = [[bytes(1), bytes(2)], [bytes(3)], []];
+      serverBehaviors.simulateTransaction = () => reply(xdr.ScVal.scvVec(pages.shift()!));
+      expect(await client.getLeaves()).toEqual(
+        [1, 2, 3].map((n) => '0x' + `0${n}`.repeat(32)),
+      );
+    });
+
+    it('checks nullifiers and submits withdrawals', async () => {
+      serverBehaviors.simulateTransaction = () => reply(xdr.ScVal.scvBool(true));
+      expect(await client.isNullifierSpent('0x1')).toBe(true);
+      const proof = {
+        pi_a: ['1', '2'] as [string, string],
+        pi_b: [['3', '4'], ['5', '6']] as [[string, string], [string, string]],
+        pi_c: ['7', '8'] as [string, string],
         protocol: 'groth16',
         curve: 'bn128',
-      },
-      ['1'],
-    );
-    expect(result).toBe(true);
+      };
+      expect(await client.withdraw(proof, '0x1', '0x2', WALLET)).toBe('mock_hash');
+    });
   });
 
   it('throws when simulation fails', async () => {
     serverBehaviors.simulateTransaction = () => ({ status: 'ERROR' });
-    client.connectWallet('GA' + 'X'.repeat(54));
+    client.connectWallet(WALLET);
     client.setContractId(validContractId);
     await expect(
-      client.depositCommitment('0x' + 'a'.repeat(64), '100', 'USDC'),
+      client.deposit('0x' + 'a'.repeat(64)),
     ).rejects.toThrow('simulation failed');
   });
 

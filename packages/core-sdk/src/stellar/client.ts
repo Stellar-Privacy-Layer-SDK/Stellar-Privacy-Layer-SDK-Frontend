@@ -1,4 +1,5 @@
 import {
+  Address,
   rpc,
   xdr,
   Contract,
@@ -7,12 +8,24 @@ import {
   scValToNative,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
-import { signTransaction } from '@stellar/freighter-api';
 import { EventEmitter } from 'events';
-import { Network, NetworkConfig, WalletInfo, SDKConfig, ZKProof } from '../types';
-import { NETWORK_CONFIGS, PRIVACY_CONTRACT_METHODS } from './config';
-import { encodeGroth16Proof, fieldBytes } from './abi';
-import { logger } from '../utils/logger';
+import { Network, NetworkConfig, PoolInfo, WalletInfo, SDKConfig, ZKProof } from '../types.js';
+import { NETWORK_CONFIGS } from './config.js';
+import { encodeGroth16Proof, fieldBytes } from './abi.js';
+import { toHex } from '../utils/encoding.js';
+import { logger } from '../utils/logger.js';
+
+/** Signs a transaction envelope (base64 XDR) and returns the signed envelope. */
+export type TransactionSigner = (xdr: string, networkPassphrase: string) => Promise<string>;
+
+// Loaded on first use: the Freighter build cannot be imported by plain Node.
+const signWithFreighter: TransactionSigner = async (xdr, networkPassphrase) => {
+  const { signTransaction } = await import('@stellar/freighter-api');
+  const result = await signTransaction(xdr, { networkPassphrase });
+  if (typeof result === 'string') return result;
+  if (result.error) throw new Error(`Transaction signing failed: ${result.error.message}`);
+  return result.signedTxXdr;
+};
 
 /**
  * Client for the Soroban RPC server and the privacy verifier contract.
@@ -26,10 +39,12 @@ export class StellarClient extends EventEmitter {
   private contract: Contract | null = null;
   private config: SDKConfig;
   private walletInfo: WalletInfo | null = null;
+  private signer: TransactionSigner;
   private networkConfigs = new Map<Network, NetworkConfig>();
 
-  constructor(config: Partial<SDKConfig> = {}) {
+  constructor(config: Partial<SDKConfig> & { signer?: TransactionSigner } = {}) {
     super();
+    this.signer = config.signer ?? signWithFreighter;
     // Copied so setContractId() never mutates the shared NETWORK_CONFIGS.
     const networkConfig = { ...(config.network ?? NETWORK_CONFIGS[Network.TESTNET]) };
     this.networkConfigs.set(networkConfig.network, networkConfig);
@@ -128,16 +143,6 @@ export class StellarClient extends EventEmitter {
       .setTimeout(30);
   }
 
-  async simulateTransaction(
-    method: string,
-    ...args: xdr.ScVal[]
-  ): Promise<rpc.Api.SimulateTransactionResponse> {
-    this.requireWallet();
-    const operation = this.getContract().call(method, ...args);
-    const transaction = (await this.buildTransaction(operation)).build();
-    return this.rpc.simulateTransaction(transaction);
-  }
-
   async sendTransaction(method: string, ...args: xdr.ScVal[]): Promise<string> {
     const wallet = this.requireWallet();
 
@@ -152,14 +157,7 @@ export class StellarClient extends EventEmitter {
     const prepared = rpc.assembleTransaction(transaction, simulated);
     const preparedXdr = prepared.build().toEnvelope().toXDR('base64');
 
-    const signedResult = await signTransaction(preparedXdr, {
-      networkPassphrase: this.config.network.networkPassphrase,
-    });
-
-    if (typeof signedResult !== 'string' && signedResult.error) {
-      throw new Error(`Transaction signing failed: ${signedResult.error.message}`);
-    }
-    const signedXdr = typeof signedResult === 'string' ? signedResult : signedResult.signedTxXdr;
+    const signedXdr = await this.signer(preparedXdr, this.config.network.networkPassphrase);
 
     const signedTransaction = TransactionBuilder.fromXDR(
       signedXdr,
@@ -232,57 +230,62 @@ export class StellarClient extends EventEmitter {
     return nativeToScVal(fieldBytes(value), { type: 'bytes' });
   }
 
-  async depositCommitment(
-    commitmentHash: string,
-    amount: string,
-    token: string,
-  ): Promise<string> {
+  async getPoolInfo(): Promise<PoolInfo> {
+    const info = scValToNative(await this.callContract('pool_info')) as {
+      token: string;
+      denomination: bigint;
+      next_index: number;
+      root: Uint8Array;
+    };
+    return {
+      token: info.token,
+      denomination: info.denomination.toString(),
+      depositCount: info.next_index,
+      root: '0x' + toHex(info.root),
+    };
+  }
+
+  /** Every commitment in the pool, in insertion order. */
+  async getLeaves(): Promise<string[]> {
+    const leaves: string[] = [];
+    for (;;) {
+      const page = scValToNative(
+        await this.callContract('leaves', xdr.ScVal.scvU32(leaves.length)),
+      ) as Uint8Array[];
+      if (page.length === 0) return leaves;
+      leaves.push(...page.map((leaf) => '0x' + toHex(leaf)));
+    }
+  }
+
+  async isNullifierSpent(nullifier: string): Promise<boolean> {
+    return scValToNative(
+      await this.callContract('is_nullifier_spent', this.field(nullifier)),
+    ) as boolean;
+  }
+
+  /** Deposits one denomination from the connected wallet. */
+  async deposit(commitment: string): Promise<string> {
     return this.sendTransaction(
-      PRIVACY_CONTRACT_METHODS.DEPOSIT,
-      this.field(commitmentHash),
-      nativeToScVal(amount, { type: 'string' }),
-      nativeToScVal(token, { type: 'string' }),
+      'deposit',
+      Address.fromString(this.requireWallet().publicKey).toScVal(),
+      this.field(commitment),
     );
   }
 
-  async withdrawCommitment(
+  async withdraw(
+    proof: ZKProof,
+    root: string,
     nullifier: string,
-    merkleProof: string[],
     recipient: string,
-    proof: string,
   ): Promise<string> {
     return this.sendTransaction(
-      PRIVACY_CONTRACT_METHODS.WITHDRAW,
-      this.field(nullifier),
-      xdr.ScVal.scvVec(merkleProof.map((step) => this.field(step))),
-      nativeToScVal(recipient, { type: 'string' }),
-      nativeToScVal(proof, { type: 'string' }),
-    );
-  }
-
-  async verifyProof(proof: ZKProof, publicInputs: string[]): Promise<boolean> {
-    const result = await this.callContract(
-      PRIVACY_CONTRACT_METHODS.VERIFY_PROOF,
+      'withdraw',
       nativeToScVal(encodeGroth16Proof(proof), {
         type: { a: ['symbol', 'bytes'], b: ['symbol', 'bytes'], c: ['symbol', 'bytes'] },
       }),
-      xdr.ScVal.scvVec(publicInputs.map((input) => this.field(input))),
-    );
-    return scValToNative(result) as boolean;
-  }
-
-  async setViewingKey(publicKey: string, encryptedKey: string): Promise<string> {
-    return this.sendTransaction(
-      PRIVACY_CONTRACT_METHODS.SET_VIEWING_KEY,
-      nativeToScVal(publicKey, { type: 'string' }),
-      nativeToScVal(encryptedKey, { type: 'string' }),
-    );
-  }
-
-  async revokeViewingKey(publicKey: string): Promise<string> {
-    return this.sendTransaction(
-      PRIVACY_CONTRACT_METHODS.REVOKE_VIEWING_KEY,
-      nativeToScVal(publicKey, { type: 'string' }),
+      this.field(root),
+      this.field(nullifier),
+      Address.fromString(recipient).toScVal(),
     );
   }
 

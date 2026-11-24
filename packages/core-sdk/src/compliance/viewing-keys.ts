@@ -1,10 +1,10 @@
 import { EventEmitter } from 'events';
 import { StrKey } from '@stellar/stellar-sdk';
-import { ViewingKey, DisclosurePayload } from '../types';
-import { generateViewingKeyPair, sealToPublicKey, ed25519PublicKeyToX25519, poseidonHash, signText, verifyText } from '../utils/crypto';
-import { isValidPublicKey } from '../utils/encoding';
-import { createLocalStorageProvider } from '../utils/storage';
-import type { StorageProvider } from '../types';
+import { ViewingKey, DisclosurePayload } from '../types.js';
+import { generateViewingKeyPair, sealToPublicKey, ed25519PublicKeyToX25519, poseidonHash, signText, verifyText } from '../utils/crypto.js';
+import { isValidPublicKey } from '../utils/encoding.js';
+import { createLocalStorageProvider } from '../utils/storage.js';
+import type { StorageProvider } from '../types.js';
 
 const KEYS_CACHE_KEY = 'viewing_keys';
 
@@ -157,7 +157,6 @@ export class ViewingKeyManager extends EventEmitter {
 function canonicalPayload(p: DisclosurePayload): string {
   return JSON.stringify([
     p.transactionHash, p.commitmentHash, p.amount ?? null, p.recipient ?? null,
-    p.sender ?? null, p.scope, p.timestamp,
-    p.proof.pi_a, p.proof.pi_b, p.proof.pi_c, p.proof.protocol, p.proof.curve,
+    p.scope, p.timestamp,
   ]);
 }

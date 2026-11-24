@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
-import { WalletInfo, Network, SDKConfig } from '../types';
-import { NETWORK_CONFIGS } from './config';
+import { WalletInfo, Network, SDKConfig } from '../types.js';
+import { NETWORK_CONFIGS } from './config.js';
 
 export type WalletProvider = 'freighter' | 'xbull' | 'albedo' | 'rabet' | 'lobstr';
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { encodeGroth16Proof, fieldBytes } from './abi';
-import { toHex } from '../utils/encoding';
+import { encodeGroth16Proof, fieldBytes, recipientField } from './abi.js';
+import { toHex } from '../utils/encoding.js';
 
 describe('fieldBytes', () => {
   it('encodes hex and decimal values as 32 bytes', () => {
@@ -23,5 +23,14 @@ describe('encodeGroth16Proof', () => {
     expect(toHex(encoded.a)).toBe(word(1) + word(2));
     expect(toHex(encoded.b)).toBe(word(4) + word(3) + word(6) + word(5));
     expect(toHex(encoded.c)).toBe(word(7) + word(8));
+  });
+});
+
+describe('recipientField', () => {
+  it('is deterministic, distinct per address and fits the field', () => {
+    const a = recipientField('CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA');
+    const b = recipientField('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
+    expect(a).toMatch(/^0x00[0-9a-f]{62}$/);
+    expect(a).not.toBe(b);
   });
 });

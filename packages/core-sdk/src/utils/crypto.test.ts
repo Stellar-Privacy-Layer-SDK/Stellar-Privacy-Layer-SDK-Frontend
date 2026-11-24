@@ -9,17 +9,11 @@ import {
   ed25519SeedToX25519,
   sha256,
   generateRandomField,
-  generateNullifier,
-  generateCommitment,
   poseidonHash2,
-  computeMerkleRoot,
-  generateMerklePath,
-  generateMerkleProof,
-  verifyMerkleProof,
   generateViewingKeyPair,
   encryptWithKey,
   decryptWithKey,
-} from './crypto';
+} from './crypto.js';
 
 describe('poseidonHash', () => {
   it('returns a 0x-prefixed 64-char hex string', async () => {
@@ -105,26 +99,6 @@ describe('generateRandomField', () => {
   });
 });
 
-describe('generateNullifier', () => {
-  it('returns a valid hex string', async () => {
-    const n = await generateNullifier('secret', 0);
-    expect(n).toMatch(/^0x[0-9a-f]{64}$/);
-  });
-
-  it('changes with different index', async () => {
-    const n0 = await generateNullifier('secret', 0);
-    const n1 = await generateNullifier('secret', 1);
-    expect(n0).not.toBe(n1);
-  });
-});
-
-describe('generateCommitment', () => {
-  it('returns a valid hex commitment', async () => {
-    const c = await generateCommitment('secret', 'GA...', '100', 'USDC');
-    expect(c).toMatch(/^0x[0-9a-f]{64}$/);
-  });
-});
-
 describe('toFieldElement', () => {
   it('distinguishes decimal, 0x-prefixed hex and text', () => {
     expect(toFieldElement('100')).toBe(100n);
@@ -143,68 +117,6 @@ describe('poseidonHash2', () => {
   it('hashes two field elements', async () => {
     const h = await poseidonHash2('0x' + 'a'.repeat(64), '0x' + 'b'.repeat(64));
     expect(h).toMatch(/^0x[0-9a-f]{64}$/);
-  });
-});
-
-describe('Merkle tree', () => {
-  it('computes root for single leaf', async () => {
-    const root = await computeMerkleRoot(['0x' + 'a'.repeat(64)]);
-    expect(root).toMatch(/^0x[0-9a-f]{64}$/);
-  });
-
-  it('computes root for multiple leaves', async () => {
-    const leaves = [
-      '0x' + 'a'.repeat(64),
-      '0x' + 'b'.repeat(64),
-      '0x' + 'c'.repeat(64),
-      '0x' + 'd'.repeat(64),
-    ];
-    const root = await computeMerkleRoot(leaves);
-    expect(root).toMatch(/^0x[0-9a-f]{64}$/);
-  });
-
-  it('generates merkle path', async () => {
-    const leaves = [
-      '0x' + 'a'.repeat(64),
-      '0x' + 'b'.repeat(64),
-      '0x' + 'c'.repeat(64),
-      '0x' + 'd'.repeat(64),
-    ];
-    const path = await generateMerklePath(leaves, 0);
-    expect(path.length).toBeGreaterThan(0);
-    expect(path[0]).toMatch(/^0x[0-9a-f]{64}$/);
-  });
-
-  it('generates merkle path for odd leaf counts', async () => {
-    const leaves = [
-      '0x' + 'a'.repeat(64),
-      '0x' + 'b'.repeat(64),
-      '0x' + 'c'.repeat(64),
-    ];
-    const path = await generateMerklePath(leaves, 2);
-    expect(path.length).toBeGreaterThan(0);
-    expect(path[path.length - 1]).toMatch(/^0x[0-9a-f]{64}$/);
-  });
-
-  it.each([1, 2, 3, 4, 5, 7, 8, 13])('proves every leaf of a %i-leaf tree', async (count) => {
-    const leaves = Array.from({ length: count }, (_, i) => '0x' + (i + 1).toString(16).padStart(64, '0'));
-    const root = await computeMerkleRoot(leaves);
-    for (let i = 0; i < count; i++) {
-      expect(await verifyMerkleProof(leaves[i], await generateMerkleProof(leaves, i), root)).toBe(true);
-    }
-  });
-
-  it('rejects a proof for a different leaf or index', async () => {
-    const leaves = ['0x1', '0x2', '0x3'];
-    const root = await computeMerkleRoot(leaves);
-    const steps = await generateMerkleProof(leaves, 0);
-    expect(await verifyMerkleProof('0x9', steps, root)).toBe(false);
-    await expect(generateMerkleProof(leaves, 3)).rejects.toThrow('out of range');
-  });
-
-  it('computes an empty merkle root', async () => {
-    const root = await computeMerkleRoot([]);
-    expect(root).toBe('0x' + '0'.repeat(64));
   });
 });
 

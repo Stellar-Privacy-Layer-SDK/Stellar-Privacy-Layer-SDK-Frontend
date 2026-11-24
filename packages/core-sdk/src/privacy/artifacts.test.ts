@@ -5,20 +5,20 @@ import {
   fetchArtifact,
   fetchVkeyJson,
   resolveArtifacts,
-} from './artifacts';
+} from './artifacts.js';
 
 describe('resolveArtifactUrls', () => {
   it('builds standard artifact URLs from a base URL', () => {
     expect(resolveArtifactUrls('https://cdn.example.com/artifacts/')).toEqual({
-      wasm: 'https://cdn.example.com/artifacts/shielded_transfer.wasm',
-      zkey: 'https://cdn.example.com/artifacts/shielded_transfer_final.zkey',
+      wasm: 'https://cdn.example.com/artifacts/withdraw.wasm',
+      zkey: 'https://cdn.example.com/artifacts/withdraw_final.zkey',
       vkey: 'https://cdn.example.com/artifacts/verification_key.json',
     });
   });
 
   it('handles base URLs without trailing slashes', () => {
     expect(resolveArtifactUrls('https://cdn.example.com/artifacts').wasm).toBe(
-      'https://cdn.example.com/artifacts/shielded_transfer.wasm',
+      'https://cdn.example.com/artifacts/withdraw.wasm',
     );
   });
 });
@@ -115,8 +115,8 @@ describe('resolveArtifacts', () => {
     }));
 
     const resolved = await resolveArtifacts({
-      wasm: 'https://cdn.example.com/shielded_transfer.wasm',
-      zkey: 'https://cdn.example.com/shielded_transfer_final.zkey',
+      wasm: 'https://cdn.example.com/withdraw.wasm',
+      zkey: 'https://cdn.example.com/withdraw_final.zkey',
       vkey: 'https://cdn.example.com/verification_key.json',
     });
 

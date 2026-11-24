@@ -1,30 +1,26 @@
-import { StellarClient } from './stellar/client';
-import { WalletManager } from './stellar/wallet';
-import { ShieldedTransfer } from './privacy/shielded-transfer';
-import { ProofGenerator } from './privacy/proof-generator';
-import { ProofVerifier } from './privacy/verifier';
-import { ViewingKeyManager } from './compliance/viewing-keys';
-import { SelectiveDisclosure } from './compliance/selective-disclosure';
-import { setLogLevel } from './utils/logger';
-import type { Prover } from './privacy/prover';
-import type { NetworkConfig, StorageProvider, LogLevel } from './types';
+import { StellarClient, type TransactionSigner } from './stellar/client.js';
+import { WalletManager } from './stellar/wallet.js';
+import { ShieldedPool } from './privacy/shielded-pool.js';
+import { ViewingKeyManager } from './compliance/viewing-keys.js';
+import { SelectiveDisclosure } from './compliance/selective-disclosure.js';
+import { setLogLevel } from './utils/logger.js';
+import type { Prover } from './privacy/prover.js';
+import type { NetworkConfig, StorageProvider, LogLevel } from './types.js';
 
-export { StellarClient } from './stellar/client';
-export { WalletManager } from './stellar/wallet';
+export { StellarClient, type TransactionSigner } from './stellar/client.js';
+export { WalletManager } from './stellar/wallet.js';
 export {
   NETWORK_CONFIGS,
-  PRIVACY_CONTRACT_METHODS,
   resolveNetworkConfig,
   type NetworkOverrides,
-} from './stellar/config';
-export { ShieldedTransfer, type ShieldedTransferOptions } from './privacy/shielded-transfer';
-export { ProofGenerator } from './privacy/proof-generator';
-export { ProofVerifier } from './privacy/verifier';
-export { ViewingKeyManager } from './compliance/viewing-keys';
-export { SelectiveDisclosure } from './compliance/selective-disclosure';
-export type { Prover, ProverArtifacts } from './privacy/prover';
-export { SimulatedProver } from './privacy/simulated-prover';
-export { SnarkjsProver, toFieldHex } from './privacy/snarkjs-prover';
+} from './stellar/config.js';
+export { ShieldedPool } from './privacy/shielded-pool.js';
+export { encodeNote, decodeNote, deriveNote, type Note, type NoteStatus } from './privacy/note.js';
+export { recipientField } from './stellar/abi.js';
+export { ViewingKeyManager } from './compliance/viewing-keys.js';
+export { SelectiveDisclosure } from './compliance/selective-disclosure.js';
+export type { Prover, ProverArtifacts, WithdrawalStatement } from './privacy/prover.js';
+export { SnarkjsProver } from './privacy/snarkjs-prover.js';
 export {
   resolveArtifacts,
   resolveArtifactUrls,
@@ -32,11 +28,12 @@ export {
   fetchArtifact,
   fetchVkeyJson,
   type CircuitArtifactUrls,
-} from './privacy/artifacts';
-export * from './types';
-export * from './utils/crypto';
-export * from './utils/encoding';
-export * from './utils/storage';
+} from './privacy/artifacts.js';
+export * from './types.js';
+export * from './utils/crypto.js';
+export * from './utils/encoding.js';
+export * from './utils/merkle.js';
+export * from './utils/storage.js';
 
 export interface PrivacySDKOptions {
   /** Override the default (testnet) network configuration. */
@@ -45,14 +42,10 @@ export interface PrivacySDKOptions {
   storageProvider?: StorageProvider;
   /** Minimum log level for the built-in structured logger. */
   logLevel?: LogLevel;
-  /**
-   * ZK prover used for proof generation. Defaults to the dev-only
-   * `SimulatedProver`; pass a `SnarkjsProver` (with real circuit artifacts)
-   * for production-grade proofs.
-   */
+  /** Prover for withdrawals. Deposits work without one. */
   prover?: Prover;
-  /** Demo mode: fake a transaction hash when submission fails. Defaults to false. */
-  simulateOnFailure?: boolean;
+  /** Signs transactions. Defaults to the Freighter wallet. */
+  signer?: TransactionSigner;
 }
 
 /**
@@ -62,37 +55,24 @@ export interface PrivacySDKOptions {
 export class PrivacySDK {
   public client: StellarClient;
   public wallet: WalletManager;
-  public shieldedTransfer: ShieldedTransfer;
-  public proofGenerator: ProofGenerator;
-  public proofVerifier: ProofVerifier;
+  public pool: ShieldedPool;
   public viewingKeys: ViewingKeyManager;
   public selectiveDisclosure: SelectiveDisclosure;
 
   constructor(options: PrivacySDKOptions = {}) {
-    const { network, storageProvider, logLevel, prover, simulateOnFailure } = options;
+    const { network, storageProvider, logLevel, prover, signer } = options;
 
     if (logLevel) setLogLevel(logLevel);
 
-    this.client = new StellarClient({ network, storageProvider });
+    this.client = new StellarClient({ network, storageProvider, signer });
     this.wallet = new WalletManager({ network, storageProvider });
-    this.proofGenerator = new ProofGenerator(prover);
-    this.shieldedTransfer = new ShieldedTransfer(
-      this.client,
-      storageProvider,
-      this.proofGenerator,
-      { simulateOnFailure },
-    );
-    this.proofVerifier = new ProofVerifier(this.client, this.proofGenerator);
+    this.pool = new ShieldedPool(this.client, prover, storageProvider);
     this.viewingKeys = new ViewingKeyManager(storageProvider);
-    this.selectiveDisclosure = new SelectiveDisclosure(
-      this.viewingKeys,
-      this.proofGenerator,
-    );
+    this.selectiveDisclosure = new SelectiveDisclosure(this.viewingKeys);
   }
 
   async initialize(): Promise<void> {
-    await this.shieldedTransfer.initialize();
-    await this.proofGenerator.initialize();
+    await this.pool.initialize();
     await this.viewingKeys.loadPersistedState();
   }
 }

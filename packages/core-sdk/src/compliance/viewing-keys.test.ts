@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Keypair } from '@stellar/stellar-sdk';
-import { openSealed, ed25519SeedToX25519 } from '../utils/crypto';
-import { ViewingKeyManager } from './viewing-keys';
-import { createMemoryStorageProvider } from '../utils/storage';
+import { openSealed, ed25519SeedToX25519 } from '../utils/crypto.js';
+import { ViewingKeyManager } from './viewing-keys.js';
+import { createMemoryStorageProvider } from '../utils/storage.js';
 
 describe('ViewingKeyManager', () => {
   let vk: ViewingKeyManager;
@@ -95,13 +95,6 @@ describe('ViewingKeyManager', () => {
     const basePayload = () => ({
       transactionHash: 'tx1',
       commitmentHash: 'cm1',
-      proof: {
-        pi_a: ['0x1', '0x2'],
-        pi_b: [['0x3', '0x4'], ['0x5', '0x6']],
-        pi_c: ['0x7', '0x8'],
-        protocol: 'groth16',
-        curve: 'bn254',
-      },
       scope: 'full',
       timestamp: 1234,
     });
@@ -114,16 +107,10 @@ describe('ViewingKeyManager', () => {
       expect(await vk.verifyDisclosurePayload(signed)).toBe(true);
     });
 
-    it('detects tampering, including inside the proof', async () => {
+    it('detects tampering', async () => {
       const key = await vk.createViewingKey('Tamper', 'full');
       const signed = await vk.signDisclosurePayload(basePayload(), key.id);
       expect(await vk.verifyDisclosurePayload({ ...signed, amount: '9' })).toBe(false);
-      expect(
-        await vk.verifyDisclosurePayload({
-          ...signed,
-          proof: { ...signed.proof, pi_a: ['0x9', '0x9'] },
-        }),
-      ).toBe(false);
     });
 
     it('cannot sign with a key whose private part is gone', async () => {

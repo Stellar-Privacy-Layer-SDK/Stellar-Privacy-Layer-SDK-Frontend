@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createLocalStorageProvider, createMemoryStorageProvider } from './storage';
-import { logger } from './logger';
-import type { StorageProvider } from '../types';
+import { createLocalStorageProvider, createMemoryStorageProvider } from './storage.js';
+import { logger } from './logger.js';
+import type { StorageProvider } from '../types.js';
 
 function runStorageTests(label: string, createProvider: () => StorageProvider) {
   describe(label, () => {
