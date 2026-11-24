@@ -9,6 +9,8 @@ import {
   poseidonHash2,
   computeMerkleRoot,
   generateMerklePath,
+  generateMerkleProof,
+  verifyMerkleProof,
   generateViewingKeyPair,
   encryptWithKey,
   decryptWithKey,
@@ -177,6 +179,22 @@ describe('Merkle tree', () => {
     const path = await generateMerklePath(leaves, 2);
     expect(path.length).toBeGreaterThan(0);
     expect(path[path.length - 1]).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it.each([1, 2, 3, 4, 5, 7, 8, 13])('proves every leaf of a %i-leaf tree', async (count) => {
+    const leaves = Array.from({ length: count }, (_, i) => '0x' + (i + 1).toString(16).padStart(64, '0'));
+    const root = await computeMerkleRoot(leaves);
+    for (let i = 0; i < count; i++) {
+      expect(await verifyMerkleProof(leaves[i], await generateMerkleProof(leaves, i), root)).toBe(true);
+    }
+  });
+
+  it('rejects a proof for a different leaf or index', async () => {
+    const leaves = ['0x1', '0x2', '0x3'];
+    const root = await computeMerkleRoot(leaves);
+    const steps = await generateMerkleProof(leaves, 0);
+    expect(await verifyMerkleProof('0x9', steps, root)).toBe(false);
+    await expect(generateMerkleProof(leaves, 3)).rejects.toThrow('out of range');
   });
 
   it('computes an empty merkle root', async () => {

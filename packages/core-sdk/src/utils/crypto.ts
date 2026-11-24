@@ -117,29 +117,56 @@ export async function computeMerkleRoot(leaves: string[]): Promise<string> {
   return computeMerkleRoot(nextLevel);
 }
 
-export async function generateMerklePath(leaves: string[], index: number): Promise<string[]> {
-  const path: string[] = [];
-  let currentIndex = index;
-  let level: string[] = [...leaves];
-  while (level.length > 1) {
-    const siblingIndex = currentIndex % 2 === 0 ? currentIndex + 1 : currentIndex - 1;
-    if (siblingIndex < level.length) {
-      path.push(level[siblingIndex]);
-    } else {
-      path.push(level[currentIndex]);
-    }
-    currentIndex = Math.floor(currentIndex / 2);
-    const nextLevel: string[] = [];
-    for (let i = 0; i < level.length; i += 2) {
-      if (i + 1 < level.length) {
-        nextLevel.push(await poseidonHash2(level[i], level[i + 1]));
-      } else {
-        nextLevel.push(level[i]);
-      }
-    }
-    level = nextLevel;
+/** A sibling on a Merkle path, and which side of the running hash it sits on. */
+export interface MerkleStep {
+  sibling: string;
+  position: 'left' | 'right';
+}
+
+/**
+ * Builds the membership proof for `leaves[index]`. A node without a sibling is
+ * promoted unchanged by {@link computeMerkleRoot} and adds no step.
+ */
+export async function generateMerkleProof(leaves: string[], index: number): Promise<MerkleStep[]> {
+  if (!Number.isInteger(index) || index < 0 || index >= leaves.length) {
+    throw new Error('Merkle leaf index out of range');
   }
-  return path;
+  const steps: MerkleStep[] = [];
+  let level = leaves;
+  let current = index;
+  while (level.length > 1) {
+    const isRight = current % 2 === 1;
+    const sibling = level[isRight ? current - 1 : current + 1];
+    if (sibling !== undefined) {
+      steps.push({ sibling, position: isRight ? 'left' : 'right' });
+    }
+    const next: string[] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      next.push(i + 1 < level.length ? await poseidonHash2(level[i], level[i + 1]) : level[i]);
+    }
+    level = next;
+    current = Math.floor(current / 2);
+  }
+  return steps;
+}
+
+/** Recomputes the root from a leaf and its proof and compares it to `root`. */
+export async function verifyMerkleProof(
+  leaf: string,
+  steps: MerkleStep[],
+  root: string,
+): Promise<boolean> {
+  let hash = leaf;
+  for (const { sibling, position } of steps) {
+    hash = position === 'left'
+      ? await poseidonHash2(sibling, hash)
+      : await poseidonHash2(hash, sibling);
+  }
+  return hash === root;
+}
+
+export async function generateMerklePath(leaves: string[], index: number): Promise<string[]> {
+  return (await generateMerkleProof(leaves, index)).map((step) => step.sibling);
 }
 
 function bytesToHex(bytes: Uint8Array): string {
