@@ -1,28 +1,34 @@
 #![no_std]
-//! Stellar Privacy Layer — Soroban verifier contract.
+//! Fixed-denomination shielded pool.
 //!
-//! Implements a shielded-commitment pool with compliance viewing keys and a
-//! real on-chain Groth16 proof verifier using the BN254 pairing precompiles
-//! introduced in Stellar Protocol 25 (`env.crypto().bn254()`).
+//! A deposit transfers exactly `denomination` of one token into the contract
+//! and appends a commitment to a Poseidon Merkle tree. A withdrawal presents a
+//! Groth16 proof of knowing an unspent commitment, without revealing which.
+//! Because all deposits are equal, amounts do not link the two.
 //!
-//! # Proof wire format
-//! Points use the Ethereum-compatible uncompressed serialization:
-//! - G1 points: 64 bytes (`X || Y`, each a 32-byte big-endian field element)
-//! - G2 points: 128 bytes (`X || Y`, each coordinate a 64-byte Fp2 element
-//!   encoded as `c1 || c0`)
+//! There is no admin: the token, denomination and verification key are fixed
+//! at deployment.
 
+use soroban_poseidon::{poseidon_hash, Field};
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, vec, Address, BytesN, Env, String, Symbol,
-    Vec, crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine},
+    contract, contracterror, contractevent, contractimpl, contracttype,
+    crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine},
+    panic_with_error, token, vec,
+    xdr::ToXdr,
+    Address, BytesN, Env, Vec, U256,
 };
 
-const COMMITMENTS: Symbol = symbol_short!("cmmts");
-const NULLIFIERS: Symbol = symbol_short!("nulrs");
-const VIEWING_KEYS: Symbol = symbol_short!("vkeys");
-const ADMIN: Symbol = symbol_short!("admin");
-const VKEY: Symbol = symbol_short!("vkey");
+pub const LEVELS: u32 = 20;
+/// Recent roots that stay valid, so deposits do not invalidate pending proofs.
+pub const ROOT_HISTORY: u32 = 100;
+/// Most leaves returned by one `leaves` call.
+pub const MAX_PAGE: u32 = 100;
 
-/// A Groth16 proof. Points are serialized in Ethereum-compatible format.
+const DAY: u32 = 17280; // ledgers
+const TTL_THRESHOLD: u32 = 30 * DAY;
+const TTL_EXTEND: u32 = 90 * DAY;
+
+/// A Groth16 proof. G1 points are `X || Y`; G2 coordinates are `c1 || c0`.
 #[contracttype]
 #[derive(Clone)]
 pub struct Groth16Proof {
@@ -31,10 +37,7 @@ pub struct Groth16Proof {
     pub c: BytesN<64>,
 }
 
-/// The Groth16 verification key.
-///
-/// `ic` must contain exactly `n_public_inputs + 1` G1 points: index 0 is the
-/// constant term and indexes `1..=n` correspond to each public input.
+/// Verification key for the public inputs `[nullifier, root, recipient]`.
 #[contracttype]
 #[derive(Clone)]
 pub struct Groth16VKey {
@@ -47,366 +50,280 @@ pub struct Groth16VKey {
 
 #[contracttype]
 #[derive(Clone)]
-pub struct ViewingKeyData {
-    pub encrypted_private_key: BytesN<64>,
-    pub scope: u32,
-    pub active: bool,
+pub struct PoolInfo {
+    pub token: Address,
+    pub denomination: i128,
+    pub next_index: u32,
+    pub root: BytesN<32>,
+}
+
+#[contracttype]
+#[derive(Clone)]
+struct Config {
+    token: Address,
+    denomination: i128,
+}
+
+/// Incremental Merkle tree: `frontier[i]` is the last left node at level `i`.
+#[contracttype]
+#[derive(Clone)]
+struct Tree {
+    next_index: u32,
+    frontier: Vec<U256>,
+    zeros: Vec<U256>,
+    roots: Vec<BytesN<32>>,
+}
+
+#[contracttype]
+enum Key {
+    Config,
+    VKey,
+    Tree,
+    Leaf(u32),
+    Commitment(BytesN<32>),
+    Nullifier(BytesN<32>),
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Error {
+    InvalidDenomination = 1,
+    InvalidVerificationKey = 2,
+    NotAFieldElement = 3,
+    DuplicateCommitment = 4,
+    TreeFull = 5,
+    UnknownRoot = 6,
+    NullifierSpent = 7,
+    InvalidProof = 8,
+}
+
+#[contractevent]
+pub struct Deposit {
+    #[topic]
+    pub commitment: BytesN<32>,
+    pub index: u32,
+}
+
+#[contractevent]
+pub struct Withdrawal {
+    #[topic]
+    pub nullifier: BytesN<32>,
+    pub recipient: Address,
 }
 
 #[contract]
-pub struct PrivacyVerifier;
+pub struct ShieldedPool;
 
 #[contractimpl]
-impl PrivacyVerifier {
-    /// Set the admin allowed to manage the verification and viewing keys.
-    pub fn __constructor(env: Env, admin: Address) {
-        env.storage().instance().set(&ADMIN, &admin);
-    }
-
-    fn require_admin(env: &Env) {
-        let admin: Address = env.storage().instance().get(&ADMIN).unwrap();
-        admin.require_auth();
-    }
-
-    /// Deposit a commitment hash into the shielded pool.
-    pub fn deposit(env: Env, commitment: BytesN<32>, amount: String, token: String) {
-        let key = (COMMITMENTS, commitment);
-        if env.storage().persistent().has(&key) {
-            panic!("commitment already exists");
+impl ShieldedPool {
+    pub fn __constructor(env: Env, token: Address, denomination: i128, vkey: Groth16VKey) {
+        if denomination <= 0 {
+            panic_with_error!(&env, Error::InvalidDenomination);
         }
-        env.storage().persistent().set(&key, &(amount, token));
-    }
-
-    /// Withdraw from the shielded pool by spending a nullifier.
-    ///
-    /// The Groth16 proof and Merkle path are validated off-chain (or via
-    /// [`Self::verify_proof`]); the contract enforces one-time spendability.
-    pub fn withdraw(
-        env: Env,
-        nullifier: BytesN<32>,
-        merkle_proof: Vec<BytesN<32>>,
-        recipient: String,
-        proof: String,
-    ) {
-        let _ = (&merkle_proof, &recipient, &proof);
-        let spent_key = (NULLIFIERS, nullifier.clone());
-        if env.storage().persistent().has(&spent_key) {
-            panic!("nullifier already spent");
+        if vkey.ic.len() != 4 {
+            panic_with_error!(&env, Error::InvalidVerificationKey);
         }
-        env.storage().persistent().set(&spent_key, &true);
-    }
-
-    /// Store the Groth16 verification key used by [`Self::verify_proof`].
-    pub fn set_vkey(env: Env, vkey: Groth16VKey) {
-        Self::require_admin(&env);
-        env.storage().persistent().set(&VKEY, &vkey);
-    }
-
-    /// Verify a Groth16 proof over BN254 using an on-chain pairing check
-    /// (Protocol 25 built-in `bn254` primitives).
-    ///
-    /// Verifies `e(A, B) == e(alpha, beta) · e(L, gamma) · e(C, delta)` where
-    /// `L = IC[0] + Σ x_i · IC[i+1]` accumulates the public inputs.
-    pub fn verify_proof(env: Env, proof: Groth16Proof, public_inputs: Vec<BytesN<32>>) -> bool {
-        let vkey: Groth16VKey = env
-            .storage()
-            .persistent()
-            .get(&VKEY)
-            .unwrap_or_else(|| panic!("verification key not set"));
-
-        if vkey.ic.len() != public_inputs.len() + 1 {
-            return false;
+        let mut zeros = Vec::new(&env);
+        let mut node = U256::from_u32(&env, 0);
+        for _ in 0..LEVELS {
+            zeros.push_back(node.clone());
+            node = hash(&env, node.clone(), node);
         }
-
-        let bn254 = env.crypto().bn254();
-
-        let a = Bn254G1Affine::from_bytes(proof.a);
-        let b = Bn254G2Affine::from_bytes(proof.b);
-        let c = Bn254G1Affine::from_bytes(proof.c);
-        let alpha = Bn254G1Affine::from_bytes(vkey.alpha_g1);
-        let beta = Bn254G2Affine::from_bytes(vkey.beta_g2);
-        let gamma = Bn254G2Affine::from_bytes(vkey.gamma_g2);
-        let delta = Bn254G2Affine::from_bytes(vkey.delta_g2);
-
-        // L = IC[0] + Σ x_i · IC[i + 1]
-        let mut acc = Bn254G1Affine::from_bytes(vkey.ic.get_unchecked(0).clone());
-        for (i, input) in public_inputs.iter().enumerate() {
-            let scalar = Bn254Fr::from_bytes(input);
-            let point = Bn254G1Affine::from_bytes(vkey.ic.get_unchecked((i + 1) as u32).clone());
-            acc = bn254.g1_add(&acc, &bn254.g1_mul(&point, &scalar));
-        }
-
-        // e(A, B) · e(-L, gamma) · e(-C, delta) · e(-alpha, beta) == 1
-        let g1s: Vec<Bn254G1Affine> = vec![&env, a, -acc, -c, -alpha];
-        let g2s: Vec<Bn254G2Affine> = vec![&env, b, gamma, delta, beta];
-        bn254.pairing_check(g1s, g2s)
-    }
-
-    /// Set a viewing key for a regulator.
-    pub fn set_viewing_key(env: Env, regulator: BytesN<32>, encrypted_key: BytesN<64>) {
-        Self::require_admin(&env);
-        let key = (VIEWING_KEYS, regulator.clone());
-        env.storage().persistent().set(
-            &key,
-            &ViewingKeyData {
-                encrypted_private_key: encrypted_key,
-                scope: 0, // full
-                active: true,
+        let store = env.storage().instance();
+        store.set(&Key::Config, &Config { token, denomination });
+        store.set(&Key::VKey, &vkey);
+        store.set(
+            &Key::Tree,
+            &Tree {
+                next_index: 0,
+                frontier: zeros.clone(),
+                zeros,
+                roots: vec![&env, to_bytes(node)],
             },
         );
     }
 
-    /// Revoke a regulator's viewing key.
-    pub fn revoke_viewing_key(env: Env, regulator: BytesN<32>) {
-        Self::require_admin(&env);
-        let key = (VIEWING_KEYS, regulator.clone());
-        if let Some(mut data) = env.storage().persistent().get::<_, ViewingKeyData>(&key) {
-            data.active = false;
-            env.storage().persistent().set(&key, &data);
+    /// Transfers one denomination from `from` and appends `commitment`.
+    /// Returns the leaf index.
+    pub fn deposit(env: Env, from: Address, commitment: BytesN<32>) -> u32 {
+        from.require_auth();
+        require_canonical(&env, &commitment);
+        let key = Key::Commitment(commitment.clone());
+        if env.storage().persistent().has(&key) {
+            panic_with_error!(&env, Error::DuplicateCommitment);
+        }
+
+        let mut tree = load_tree(&env);
+        let index = tree.next_index;
+        if index >= 1 << LEVELS {
+            panic_with_error!(&env, Error::TreeFull);
+        }
+        let mut node = U256::from_be_bytes(&env, commitment.as_ref());
+        let mut position = index;
+        for level in 0..LEVELS {
+            node = if position % 2 == 0 {
+                tree.frontier.set(level, node.clone());
+                hash(&env, node, tree.zeros.get_unchecked(level))
+            } else {
+                hash(&env, tree.frontier.get_unchecked(level), node)
+            };
+            position /= 2;
+        }
+        tree.next_index += 1;
+        tree.roots.push_back(to_bytes(node));
+        if tree.roots.len() > ROOT_HISTORY {
+            tree.roots.pop_front();
+        }
+        env.storage().instance().set(&Key::Tree, &tree);
+        persist(&env, &key, &true);
+        persist(&env, &Key::Leaf(index), &commitment);
+        bump(&env);
+
+        let config = load_config(&env);
+        token::TokenClient::new(&env, &config.token).transfer(
+            &from,
+            &env.current_contract_address(),
+            &config.denomination,
+        );
+        Deposit { commitment, index }.publish(&env);
+        index
+    }
+
+    /// Pays one denomination to `recipient`. Needs no authorization: the proof
+    /// is bound to the recipient, so any account may submit it.
+    pub fn withdraw(
+        env: Env,
+        proof: Groth16Proof,
+        root: BytesN<32>,
+        nullifier: BytesN<32>,
+        recipient: Address,
+    ) {
+        // A non-canonical encoding would be a second spelling of one nullifier.
+        require_canonical(&env, &nullifier);
+        let key = Key::Nullifier(nullifier.clone());
+        if env.storage().persistent().has(&key) {
+            panic_with_error!(&env, Error::NullifierSpent);
+        }
+        if !load_tree(&env).roots.contains(&root) {
+            panic_with_error!(&env, Error::UnknownRoot);
+        }
+        let inputs = vec![
+            &env,
+            nullifier.clone(),
+            root,
+            recipient_field(&env, &recipient),
+        ];
+        if !verify(&env, proof, inputs) {
+            panic_with_error!(&env, Error::InvalidProof);
+        }
+        persist(&env, &key, &true);
+        bump(&env);
+
+        let config = load_config(&env);
+        token::TokenClient::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &recipient,
+            &config.denomination,
+        );
+        Withdrawal { nullifier, recipient }.publish(&env);
+    }
+
+    pub fn pool_info(env: Env) -> PoolInfo {
+        let config = load_config(&env);
+        let tree = load_tree(&env);
+        PoolInfo {
+            token: config.token,
+            denomination: config.denomination,
+            next_index: tree.next_index,
+            root: tree.roots.last_unchecked(),
         }
     }
 
-    /// Check if a nullifier has already been spent.
-    pub fn is_nullifier_spent(env: Env, nullifier: BytesN<32>) -> bool {
-        env.storage().persistent().has(&(NULLIFIERS, nullifier))
+    /// Commitments from `start`, at most `MAX_PAGE`, to rebuild the tree.
+    pub fn leaves(env: Env, start: u32) -> Vec<BytesN<32>> {
+        let end = load_tree(&env).next_index.min(start.saturating_add(MAX_PAGE));
+        let mut page = Vec::new(&env);
+        for index in start..end {
+            page.push_back(env.storage().persistent().get(&Key::Leaf(index)).unwrap());
+        }
+        page
     }
 
-    /// Retrieve a commitment from storage.
-    pub fn get_commitment(env: Env, commitment: BytesN<32>) -> Option<(String, String)> {
-        let key = (COMMITMENTS, commitment);
-        env.storage()
-            .persistent()
-            .get(&key)
+    pub fn is_nullifier_spent(env: Env, nullifier: BytesN<32>) -> bool {
+        env.storage().persistent().has(&Key::Nullifier(nullifier))
     }
+}
+
+fn load_config(env: &Env) -> Config {
+    env.storage().instance().get(&Key::Config).unwrap()
+}
+
+fn load_tree(env: &Env) -> Tree {
+    env.storage().instance().get(&Key::Tree).unwrap()
+}
+
+fn persist<V: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(env: &Env, key: &Key, value: &V) {
+    let store = env.storage().persistent();
+    store.set(key, value);
+    store.extend_ttl(key, TTL_THRESHOLD, TTL_EXTEND);
+}
+
+fn bump(env: &Env) {
+    env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND);
+}
+
+/// circomlib's `Poseidon(2)`.
+fn hash(env: &Env, left: U256, right: U256) -> U256 {
+    poseidon_hash::<3, Bn254Fr>(env, &vec![env, left, right])
+}
+
+fn to_bytes(value: U256) -> BytesN<32> {
+    value.to_be_bytes().try_into().unwrap()
+}
+
+fn require_canonical(env: &Env, value: &BytesN<32>) {
+    if U256::from_be_bytes(env, value.as_ref()) >= Bn254Fr::modulus(env) {
+        panic_with_error!(env, Error::NotAFieldElement);
+    }
+}
+
+/// sha256 of the address XDR with the top byte cleared, so it fits the field.
+fn recipient_field(env: &Env, recipient: &Address) -> BytesN<32> {
+    let mut bytes = env.crypto().sha256(&recipient.to_xdr(env)).to_array();
+    bytes[0] = 0;
+    BytesN::from_array(env, &bytes)
+}
+
+/// Checks `e(A, B) == e(alpha, beta) · e(L, gamma) · e(C, delta)` where
+/// `L = IC[0] + Σ x_i · IC[i + 1]`.
+fn verify(env: &Env, proof: Groth16Proof, inputs: Vec<BytesN<32>>) -> bool {
+    let vkey: Groth16VKey = env.storage().instance().get(&Key::VKey).unwrap();
+    let bn254 = env.crypto().bn254();
+    let mut acc = Bn254G1Affine::from_bytes(vkey.ic.get_unchecked(0));
+    for (i, input) in inputs.iter().enumerate() {
+        let point = Bn254G1Affine::from_bytes(vkey.ic.get_unchecked(i as u32 + 1));
+        acc = bn254.g1_add(&acc, &bn254.g1_mul(&point, &Bn254Fr::from_bytes(input)));
+    }
+    bn254.pairing_check(
+        vec![
+            env,
+            Bn254G1Affine::from_bytes(proof.a),
+            -acc,
+            -Bn254G1Affine::from_bytes(proof.c),
+            -Bn254G1Affine::from_bytes(vkey.alpha_g1),
+        ],
+        vec![
+            env,
+            Bn254G2Affine::from_bytes(proof.b),
+            Bn254G2Affine::from_bytes(vkey.gamma_g2),
+            Bn254G2Affine::from_bytes(vkey.delta_g2),
+            Bn254G2Affine::from_bytes(vkey.beta_g2),
+        ],
+    )
 }
 
 #[cfg(test)]
 mod fixture;
-
 #[cfg(test)]
-mod test {
-    extern crate std;
-
-    use super::*;
-    use soroban_sdk::{testutils::Address as _, vec, BytesN, Env, String};
-
-    /// Register the contract natively and return a client bound to `env`.
-    fn deploy(env: &Env) -> PrivacyVerifierClient<'_> {
-        env.mock_all_auths();
-        let contract_id = env.register(PrivacyVerifier, (Address::generate(env),));
-        PrivacyVerifierClient::new(env, &contract_id)
-    }
-
-    /// Valid BN254 points from the go-ethereum bn256 precompile test vectors.
-    const G1_VECTOR: [u8; 64] = [
-        0x1c, 0x76, 0x47, 0x6f, 0x4d, 0xef, 0x4b, 0xb9, 0x45, 0x41, 0xd5, 0x7e, 0xbb, 0xa1, 0x19,
-        0x33, 0x81, 0xff, 0xa7, 0xaa, 0x76, 0xad, 0xa6, 0x64, 0xdd, 0x31, 0xc1, 0x60, 0x24, 0xc4,
-        0x3f, 0x59, 0x30, 0x34, 0xdd, 0x29, 0x20, 0xf6, 0x73, 0xe2, 0x04, 0xfe, 0xe2, 0x81, 0x1c,
-        0x67, 0x87, 0x45, 0xfc, 0x81, 0x9b, 0x55, 0xd3, 0xe9, 0xd2, 0x94, 0xe4, 0x5c, 0x9b, 0x03,
-        0xa7, 0x6a, 0xef, 0x41,
-    ];
-
-    const G2_VECTOR: [u8; 128] = [
-        0x20, 0x9d, 0xd1, 0x5e, 0xbf, 0xf5, 0xd4, 0x6c, 0x4b, 0xd8, 0x88, 0xe5, 0x1a, 0x93, 0xcf,
-        0x99, 0xa7, 0x32, 0x96, 0x36, 0xc6, 0x35, 0x14, 0x39, 0x6b, 0x4a, 0x45, 0x20, 0x03, 0xa3,
-        0x5b, 0xf7, 0x04, 0xbf, 0x11, 0xca, 0x01, 0x48, 0x3b, 0xfa, 0x8b, 0x34, 0xb4, 0x35, 0x61,
-        0x84, 0x8d, 0x28, 0x90, 0x59, 0x60, 0x11, 0x4c, 0x8a, 0xc0, 0x40, 0x49, 0xaf, 0x4b, 0x63,
-        0x15, 0xa4, 0x16, 0x78, 0x2b, 0xb8, 0x32, 0x4a, 0xf6, 0xcf, 0xc9, 0x35, 0x37, 0xa2, 0xad,
-        0x1a, 0x44, 0x5c, 0xfd, 0x0c, 0xa2, 0xa7, 0x1a, 0xcd, 0x7a, 0xc4, 0x1f, 0xad, 0xbf, 0x93,
-        0x3c, 0x2a, 0x51, 0xbe, 0x34, 0x4d, 0x12, 0x0a, 0x2a, 0x4c, 0xf3, 0x0c, 0x1b, 0xf9, 0x84,
-        0x5f, 0x20, 0xc6, 0xfe, 0x39, 0xe0, 0x7e, 0xa2, 0xcc, 0xe6, 0x1f, 0x0c, 0x9b, 0xb0, 0x48,
-        0x16, 0x5f, 0xe5, 0xe4, 0xde, 0x87, 0x75, 0x50,
-    ];
-
-    fn valid_vkey(env: &Env, n_inputs: u32) -> Groth16VKey {
-        let mut ic = vec![env];
-        for _ in 0..=n_inputs {
-            ic.push_back(BytesN::from_array(env, &G1_VECTOR));
-        }
-        Groth16VKey {
-            alpha_g1: BytesN::from_array(env, &G1_VECTOR),
-            beta_g2: BytesN::from_array(env, &G2_VECTOR),
-            gamma_g2: BytesN::from_array(env, &G2_VECTOR),
-            delta_g2: BytesN::from_array(env, &G2_VECTOR),
-            ic,
-        }
-    }
-
-    fn valid_proof(env: &Env) -> Groth16Proof {
-        Groth16Proof {
-            a: BytesN::from_array(env, &G1_VECTOR),
-            b: BytesN::from_array(env, &G2_VECTOR),
-            c: BytesN::from_array(env, &G1_VECTOR),
-        }
-    }
-
-    #[test]
-    fn test_deposit_and_get_commitment() {
-        let env = Env::default();
-        let client = deploy(&env);
-        let commitment = BytesN::from_array(&env, &[0xaa; 32]);
-        let amount = String::from_str(&env, "100");
-        let token = String::from_str(&env, "USDC");
-
-        client.deposit(&commitment, &amount, &token);
-
-        let stored = client.get_commitment(&commitment);
-        assert!(stored.is_some());
-        let (stored_amount, stored_token) = stored.unwrap();
-        assert_eq!(stored_amount, amount);
-        assert_eq!(stored_token, token);
-    }
-
-    #[test]
-    #[should_panic(expected = "commitment already exists")]
-    fn test_duplicate_commitment_rejected() {
-        let env = Env::default();
-        let client = deploy(&env);
-        let commitment = BytesN::from_array(&env, &[0xaa; 32]);
-        client.deposit(&commitment, &String::from_str(&env, "100"), &String::from_str(&env, "USDC"));
-        client.deposit(&commitment, &String::from_str(&env, "1"), &String::from_str(&env, "USDC"));
-    }
-
-    #[test]
-    fn test_key_management_requires_admin() {
-        let env = Env::default();
-        let client = deploy(&env);
-        env.set_auths(&[]);
-        let key = BytesN::from_array(&env, &[0xcc; 32]);
-        assert!(client.try_set_vkey(&valid_vkey(&env, 1)).is_err());
-        assert!(client.try_set_viewing_key(&key, &BytesN::from_array(&env, &[0; 64])).is_err());
-        assert!(client.try_revoke_viewing_key(&key).is_err());
-    }
-
-    #[test]
-    fn test_double_spend_rejection() {
-        let env = Env::default();
-        let client = deploy(&env);
-        let nullifier = BytesN::from_array(&env, &[0xbb; 32]);
-        let merkle_proof = vec![&env];
-        let recipient = String::from_str(&env, "GAXXXX");
-        let proof = String::from_str(&env, "proof_data");
-
-        assert!(!client.is_nullifier_spent(&nullifier));
-
-        client.withdraw(&nullifier, &merkle_proof, &recipient, &proof);
-
-        assert!(client.is_nullifier_spent(&nullifier));
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.withdraw(&nullifier, &merkle_proof, &recipient, &proof);
-        }));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_viewing_key_lifecycle() {
-        let env = Env::default();
-        let client = deploy(&env);
-        let regulator = BytesN::from_array(&env, &[0xcc; 32]);
-        let encrypted_key = BytesN::from_array(&env, &[0xdd; 64]);
-
-        client.set_viewing_key(&regulator, &encrypted_key);
-        client.revoke_viewing_key(&regulator);
-    }
-
-    #[test]
-    fn test_nullifier_not_spent_by_default() {
-        let env = Env::default();
-        let client = deploy(&env);
-        let nullifier = BytesN::from_array(&env, &[0xee; 32]);
-        assert!(!client.is_nullifier_spent(&nullifier));
-    }
-
-    #[test]
-    fn test_missing_commitment_returns_none() {
-        let env = Env::default();
-        let client = deploy(&env);
-        let commitment = BytesN::from_array(&env, &[0xff; 32]);
-        let stored = client.get_commitment(&commitment);
-        assert!(stored.is_none());
-    }
-
-    #[test]
-    #[should_panic(expected = "verification key not set")]
-    fn test_verify_proof_panics_without_vkey() {
-        let env = Env::default();
-        let client = deploy(&env);
-        let inputs = vec![&env, BytesN::from_array(&env, &[0x01; 32])];
-        let _ = client.verify_proof(&valid_proof(&env), &inputs);
-    }
-
-    #[test]
-    fn test_verify_proof_rejects_ic_length_mismatch() {
-        let env = Env::default();
-        let client = deploy(&env);
-        // vkey with 2 IC points but 3 public inputs -> mismatch
-        let mut ic = vec![&env];
-        ic.push_back(BytesN::from_array(&env, &G1_VECTOR));
-        client.set_vkey(&Groth16VKey {
-            alpha_g1: BytesN::from_array(&env, &G1_VECTOR),
-            beta_g2: BytesN::from_array(&env, &G2_VECTOR),
-            gamma_g2: BytesN::from_array(&env, &G2_VECTOR),
-            delta_g2: BytesN::from_array(&env, &G2_VECTOR),
-            ic,
-        });
-
-        let inputs = vec![
-            &env,
-            BytesN::from_array(&env, &[0x01; 32]),
-            BytesN::from_array(&env, &[0x02; 32]),
-            BytesN::from_array(&env, &[0x03; 32]),
-        ];
-        let valid = client.verify_proof(&valid_proof(&env), &inputs);
-        assert!(!valid);
-    }
-
-    #[test]
-    fn test_verify_proof_rejects_invalid_proof() {
-        let env = Env::default();
-        let client = deploy(&env);
-        client.set_vkey(&valid_vkey(&env, 1));
-
-        let inputs = vec![&env, BytesN::from_array(&env, &[0x01; 32])];
-        let valid = client.verify_proof(&valid_proof(&env), &inputs);
-        // Arbitrary points do not satisfy the Groth16 pairing equation.
-        assert!(!valid);
-    }
-
-    fn hex<const N: usize>(env: &Env, value: &str) -> BytesN<N> {
-        let mut bytes = [0u8; N];
-        for (i, byte) in bytes.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&value[i * 2..i * 2 + 2], 16).unwrap();
-        }
-        BytesN::from_array(env, &bytes)
-    }
-
-    #[test]
-    fn test_verify_proof_accepts_real_sdk_proof() {
-        let env = Env::default();
-        let client = deploy(&env);
-        client.set_vkey(&Groth16VKey {
-            alpha_g1: hex(&env, fixture::ALPHA),
-            beta_g2: hex(&env, fixture::BETA),
-            gamma_g2: hex(&env, fixture::GAMMA),
-            delta_g2: hex(&env, fixture::DELTA),
-            ic: vec![
-                &env,
-                hex(&env, fixture::IC0),
-                hex(&env, fixture::IC1),
-                hex(&env, fixture::IC2),
-            ],
-        });
-        let proof = Groth16Proof {
-            a: hex(&env, fixture::A),
-            b: hex(&env, fixture::B),
-            c: hex(&env, fixture::C),
-        };
-        let commitment: BytesN<32> = hex(&env, fixture::INPUT0);
-        let nullifier: BytesN<32> = hex(&env, fixture::INPUT1);
-
-        assert!(client.verify_proof(&proof, &vec![&env, commitment.clone(), nullifier.clone()]));
-        // Same proof, swapped public inputs.
-        assert!(!client.verify_proof(&proof, &vec![&env, nullifier, commitment]));
-    }
-}
+mod test;

@@ -1513,6 +1513,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "soroban-poseidon"
+version = "27.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b241822373adc51c23d5412e412b3b91b0d6b6bba146584946391aa32667820d"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "soroban-sdk"
 version = "27.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1627,10 +1636,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "stellar-privacy-verifier"
-version = "1.0.0"
+name = "stellar-shielded-pool"
+version = "2.0.0"
 dependencies = [
- "serde",
+ "soroban-poseidon",
  "soroban-sdk",
 ]
 

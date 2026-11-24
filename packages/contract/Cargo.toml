@@ -1,15 +1,15 @@
 [package]
-name = "stellar-privacy-verifier"
-version = "1.0.0"
+name = "stellar-shielded-pool"
+version = "2.0.0"
 edition = "2021"
-description = "Soroban verifier contract for Stellar Privacy Layer — validates Groth16 proofs over BN254 with on-chain pairing checks (Stellar Protocol 25)"
+description = "Fixed-denomination shielded pool for Soroban with Groth16 withdrawals"
 
 [lib]
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
 soroban-sdk = "27.0.5"
-serde = { version = "1", default-features = false, features = ["derive"] }
+soroban-poseidon = "27.0.0"
 
 [dev-dependencies]
 soroban-sdk = { version = "27.0.5", features = ["testutils"] }
