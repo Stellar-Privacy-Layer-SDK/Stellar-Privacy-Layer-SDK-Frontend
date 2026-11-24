@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { TransactionHistory } from './History';
 
+const refreshPending = vi.fn();
 const mockUseWallet = vi.fn();
 const mockUseShieldedTransfer = vi.fn();
 
@@ -28,6 +29,7 @@ describe('TransactionHistory', () => {
       error: null,
       deposit: vi.fn(),
       refreshHistory: vi.fn(),
+      refreshPending,
     });
   });
 
@@ -78,6 +80,7 @@ describe('TransactionHistory', () => {
       error: null,
       deposit: vi.fn(),
       refreshHistory: vi.fn(),
+      refreshPending,
     });
     render(
       <MemoryRouter>
@@ -88,5 +91,39 @@ describe('TransactionHistory', () => {
     expect(screen.getByText('50 XLM')).toBeDefined();
     expect(screen.getByText('Confirmed')).toBeDefined();
     expect(screen.getByText('Pending')).toBeDefined();
+  });
+
+  it('polls while transactions are pending and stops on unmount', () => {
+    vi.useFakeTimers();
+    refreshPending.mockClear();
+    mockUseShieldedTransfer.mockReturnValue({
+      transactions: [
+        {
+          type: 'withdrawal',
+          txHash: 'h',
+          commitmentHash: '0x' + 'b'.repeat(64),
+          nullifier: 'n',
+          amount: '1',
+          token: 'XLM',
+          recipient: 'GA' + 'X'.repeat(54),
+          timestamp: 1,
+          status: 'pending',
+        },
+      ],
+      refreshPending,
+    });
+    const { unmount } = render(
+      <MemoryRouter>
+        <TransactionHistory />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Withdrawal')).toBeDefined();
+    expect(refreshPending).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(10_000);
+    expect(refreshPending).toHaveBeenCalledTimes(2);
+    unmount();
+    vi.advanceTimersByTime(30_000);
+    expect(refreshPending).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });

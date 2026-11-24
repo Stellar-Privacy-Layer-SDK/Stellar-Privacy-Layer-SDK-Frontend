@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { History as HistoryIcon, Shield, Send, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { useWallet, useShieldedTransfer } from '../hooks/useSDK';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -10,10 +11,20 @@ const statusConfig = {
   failed: { icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/10', label: 'Failed' },
 };
 
+const POLL_INTERVAL_MS = 10_000;
+
 export function TransactionHistory() {
   const { walletInfo } = useWallet();
-  const { transactions } = useShieldedTransfer();
+  const { transactions, refreshPending } = useShieldedTransfer();
   const navigate = useNavigate();
+  const hasPending = transactions.some((tx) => tx.status === 'pending');
+
+  useEffect(() => {
+    if (!walletInfo?.isConnected || !hasPending) return;
+    void refreshPending();
+    const timer = setInterval(() => void refreshPending(), POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [walletInfo?.isConnected, hasPending, refreshPending]);
 
   if (!walletInfo?.isConnected) {
     return (
@@ -69,6 +80,11 @@ export function TransactionHistory() {
                         <span className={`badge ${status.bg} ${status.color} text-[10px]`}>
                           {status.label}
                         </span>
+                        {tx.type === 'withdrawal' && (
+                          <span className="badge bg-stellar-500/10 text-stellar-400 text-[10px]">
+                            Withdrawal
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">

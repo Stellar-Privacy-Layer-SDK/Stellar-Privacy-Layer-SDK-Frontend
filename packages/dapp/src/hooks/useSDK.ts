@@ -162,7 +162,16 @@ export function useShieldedTransfer() {
     if (ready) void refreshHistory();
   }, [ready, refreshHistory]);
 
-  return { transactions, isProcessing, error, deposit, refreshHistory };
+  /** Polls the network, then reloads the history if anything changed. */
+  const refreshPending = useCallback(async () => {
+    try {
+      if (await sdk.shieldedTransfer.refreshPendingTransactions()) await refreshHistory();
+    } catch {
+      // retried on the next poll
+    }
+  }, [sdk, refreshHistory]);
+
+  return { transactions, isProcessing, error, deposit, refreshHistory, refreshPending };
 }
 
 export function useViewingKeys() {
