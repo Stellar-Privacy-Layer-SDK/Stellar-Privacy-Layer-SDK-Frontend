@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 import {
   createMemoryStorageProvider, Network, PrivacySDK, resolveNetworkConfig, SnarkjsProver,
 } from '../packages/core-sdk/dist/index.js';
-import { connect } from './stellar.mjs';
+import { connect } from '../scripts/stellar.mjs';
 
 const require = createRequire(new URL('../packages/core-sdk/package.json', import.meta.url));
 const { Keypair, TransactionBuilder } = require('@stellar/stellar-sdk');
