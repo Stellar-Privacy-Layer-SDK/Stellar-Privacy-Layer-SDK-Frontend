@@ -27,6 +27,11 @@ const signWithFreighter: TransactionSigner = async (xdr, networkPassphrase) => {
   return result.signedTxXdr;
 };
 
+/** Plain HTTP is only allowed for the local sandbox. */
+function createServer(config: NetworkConfig): rpc.Server {
+  return new rpc.Server(config.rpcUrl, { allowHttp: config.network === Network.SANDBOX });
+}
+
 /**
  * Client for the Soroban RPC server and the privacy verifier contract.
  *
@@ -52,7 +57,7 @@ export class StellarClient extends EventEmitter {
       network: networkConfig,
       storageProvider: config.storageProvider,
     };
-    this.rpc = new rpc.Server(networkConfig.rpcUrl);
+    this.rpc = createServer(networkConfig);
 
     if (networkConfig.contractId) {
       this.contract = new Contract(networkConfig.contractId);
@@ -97,7 +102,7 @@ export class StellarClient extends EventEmitter {
     if (network === this.config.network.network) return;
     this.config.network = { ...(this.networkConfigs.get(network) ?? NETWORK_CONFIGS[network]) };
     this.networkConfigs.set(network, this.config.network);
-    this.rpc = new rpc.Server(this.config.network.rpcUrl);
+    this.rpc = createServer(this.config.network);
     this.contract = this.config.network.contractId
       ? new Contract(this.config.network.contractId)
       : null;
