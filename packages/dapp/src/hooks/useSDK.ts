@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   PrivacySDK,
   WalletInfo,
+  Commitment,
   ShieldedTransaction,
   ViewingKey,
   Network,
@@ -121,6 +122,7 @@ export function useShieldedTransfer() {
   const sdk = useSDK();
   const ready = useSDKReady();
   const [transactions, setTransactions] = useState<ShieldedTransaction[]>([]);
+  const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -153,6 +155,7 @@ export function useShieldedTransfer() {
     try {
       const history = await sdk.shieldedTransfer.getTransactionHistory();
       setTransactions(history);
+      setCommitments(await sdk.shieldedTransfer.getCommitments());
     } catch {
       // history refresh is best-effort
     }
@@ -161,6 +164,28 @@ export function useShieldedTransfer() {
   useEffect(() => {
     if (ready) void refreshHistory();
   }, [ready, refreshHistory]);
+
+  const withdraw = useCallback(
+    async (commitment: Commitment, recipient: string) => {
+      setIsProcessing(true);
+      setError(null);
+      try {
+        const result = await sdk.shieldedTransfer.withdraw(
+          commitment.hash,
+          recipient,
+          commitment.amount,
+        );
+        await refreshHistory();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Withdrawal failed');
+        throw e;
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [sdk, refreshHistory],
+  );
 
   /** Polls the network, then reloads the history if anything changed. */
   const refreshPending = useCallback(async () => {
@@ -171,7 +196,16 @@ export function useShieldedTransfer() {
     }
   }, [sdk, refreshHistory]);
 
-  return { transactions, isProcessing, error, deposit, refreshHistory, refreshPending };
+  return {
+    transactions,
+    commitments,
+    isProcessing,
+    error,
+    deposit,
+    withdraw,
+    refreshHistory,
+    refreshPending,
+  };
 }
 
 export function useViewingKeys() {

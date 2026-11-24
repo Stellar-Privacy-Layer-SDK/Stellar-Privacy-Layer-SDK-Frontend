@@ -34,6 +34,9 @@ const { mocks } = vi.hoisted(() => ({
     shieldedTransfer: {
       deposit: vi.fn(),
       getTransactionHistory: vi.fn(),
+      getCommitments: vi.fn(async () => []),
+      refreshPendingTransactions: vi.fn(),
+      withdraw: vi.fn(),
     },
     viewingKeys: {
       getAllViewingKeys: vi.fn<() => Partial<ViewingKey>[]>(() => []),
@@ -229,5 +232,29 @@ describe('useShieldedTransfer', () => {
       );
     });
     expect(result.current.error).toBe('proof failed');
+  });
+
+  it('withdraws the whole commitment', async () => {
+    mocks.shieldedTransfer.withdraw.mockResolvedValue({ txHash: 'w' });
+    const { result } = renderHook(() => useShieldedTransfer());
+    const commitment = {
+      hash: 'cm-1', nullifier: 'n', amount: '10', token: 'XLM', recipient: publicKey, timestamp: 1,
+    };
+    await act(async () => {
+      await result.current.withdraw(commitment, publicKey);
+    });
+    expect(mocks.shieldedTransfer.withdraw).toHaveBeenCalledWith('cm-1', publicKey, '10');
+  });
+
+  it('reloads the history only when a pending status changed', async () => {
+    const { result } = renderHook(() => useShieldedTransfer());
+    await waitFor(() => expect(result.current.transactions).toHaveLength(1));
+    mocks.shieldedTransfer.getTransactionHistory.mockClear();
+    mocks.shieldedTransfer.refreshPendingTransactions.mockResolvedValueOnce(false);
+    await act(() => result.current.refreshPending());
+    expect(mocks.shieldedTransfer.getTransactionHistory).not.toHaveBeenCalled();
+    mocks.shieldedTransfer.refreshPendingTransactions.mockResolvedValueOnce(true);
+    await act(() => result.current.refreshPending());
+    expect(mocks.shieldedTransfer.getTransactionHistory).toHaveBeenCalledTimes(1);
   });
 });
