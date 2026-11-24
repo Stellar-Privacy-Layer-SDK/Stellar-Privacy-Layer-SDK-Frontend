@@ -46,7 +46,7 @@
     "circom2": "0.2.22",
     "circomlib": "2.0.5",
     "eslint": "^10.8.0",
-    "playwright": "1.55.0",
+    "playwright": "1.56.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.66.0"
   },
