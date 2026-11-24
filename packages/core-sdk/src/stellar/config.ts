@@ -3,14 +3,14 @@ import { Network, NetworkConfig } from '../types';
 export const NETWORK_CONFIGS: Record<Network, NetworkConfig> = {
   [Network.PUBLIC]: {
     network: Network.PUBLIC,
-    rpcUrl: 'https://soroban-rpc.stellar.org',
+    rpcUrl: 'https://mainnet.sorobanrpc.com',
     networkPassphrase: 'Public Global Stellar Network ; September 2015',
     contractId: '',
     horizonUrl: 'https://horizon.stellar.org',
   },
   [Network.TESTNET]: {
     network: Network.TESTNET,
-    rpcUrl: 'https://soroban-rpc-testnet.stellar.org',
+    rpcUrl: 'https://soroban-testnet.stellar.org',
     networkPassphrase: 'Test SDF Network ; September 2015',
     contractId: '',
     horizonUrl: 'https://horizon-testnet.stellar.org',
