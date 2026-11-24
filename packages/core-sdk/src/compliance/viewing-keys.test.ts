@@ -81,37 +81,6 @@ describe('ViewingKeyManager', () => {
     });
   });
 
-  describe('createDisclosureRequest', () => {
-    it('creates a full-scope payload', async () => {
-      const payload = await vk.createDisclosureRequest({
-        regulatorPublicKey: 'GA' + 'X'.repeat(54),
-        scope: 'full',
-        reason: 'Audit',
-      });
-      expect(payload.scope).toBe('full');
-      expect(payload.timestamp).toBeGreaterThan(0);
-      expect(payload.proof.protocol).toBe('groth16');
-    });
-
-    it('omits fields based on scope', async () => {
-      const amountOnly = await vk.createDisclosureRequest({
-        regulatorPublicKey: 'GA' + 'X'.repeat(54),
-        scope: 'amount-only',
-        reason: 'x',
-      });
-      expect(amountOnly.amount).toBeDefined();
-      expect(amountOnly.recipient).toBeUndefined();
-
-      const recipientOnly = await vk.createDisclosureRequest({
-        regulatorPublicKey: 'GA' + 'X'.repeat(54),
-        scope: 'recipient-only',
-        reason: 'x',
-      });
-      expect(recipientOnly.amount).toBeUndefined();
-      expect(recipientOnly.recipient).toBeDefined();
-    });
-  });
-
   describe('signDisclosurePayload / verifyDisclosurePayload', () => {
     const basePayload = () => ({
       transactionHash: 'tx1',

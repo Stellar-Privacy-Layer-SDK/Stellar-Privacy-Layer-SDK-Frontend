@@ -58,11 +58,8 @@ export const PRIVACY_CONTRACT_METHODS = {
   DEPOSIT: 'deposit',
   WITHDRAW: 'withdraw',
   VERIFY_PROOF: 'verify_proof',
-  ADD_COMMITMENT: 'add_commitment',
-  SPEND_NULLIFIER: 'spend_nullifier',
   GET_COMMITMENT: 'get_commitment',
   IS_NULLIFIER_SPENT: 'is_nullifier_spent',
   SET_VIEWING_KEY: 'set_viewing_key',
   REVOKE_VIEWING_KEY: 'revoke_viewing_key',
-  DISCLOSE_TRANSACTION: 'disclose_transaction',
 } as const;

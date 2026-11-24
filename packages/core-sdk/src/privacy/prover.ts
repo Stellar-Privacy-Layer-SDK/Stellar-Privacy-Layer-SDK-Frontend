@@ -31,6 +31,3 @@ export interface Prover {
   ): Promise<ZKProof>;
   verifyProof(proof: ZKProof, publicInputs: string[]): Promise<boolean>;
 }
-
-export { SnarkjsProver } from './snarkjs-prover';
-export { SimulatedProver } from './simulated-prover';

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { ViewingKey, ComplianceDisclosureRequest, DisclosurePayload } from '../types';
+import { ViewingKey, DisclosurePayload } from '../types';
 import { generateViewingKeyPair, encryptWithKey, poseidonHash } from '../utils/crypto';
 import { createLocalStorageProvider } from '../utils/storage';
 import type { StorageProvider } from '../types';
@@ -124,24 +124,6 @@ export class ViewingKeyManager extends EventEmitter {
 
   getPrivateKey(keyId: string): string | undefined {
     return this.keyPairs.get(keyId)?.privateKey;
-  }
-
-  async createDisclosureRequest(request: ComplianceDisclosureRequest): Promise<DisclosurePayload> {
-    return {
-      transactionHash: '',
-      commitmentHash: '',
-      amount: request.scope === 'full' || request.scope === 'amount-only' ? '' : undefined,
-      recipient: request.scope === 'full' || request.scope === 'recipient-only' ? '' : undefined,
-      proof: {
-        pi_a: ['', ''],
-        pi_b: [['', ''], ['', '']],
-        pi_c: ['', ''],
-        protocol: 'groth16',
-        curve: 'bn254',
-      },
-      scope: request.scope,
-      timestamp: Date.now(),
-    };
   }
 
   async signDisclosurePayload(payload: DisclosurePayload, keyId: string): Promise<DisclosurePayload> {

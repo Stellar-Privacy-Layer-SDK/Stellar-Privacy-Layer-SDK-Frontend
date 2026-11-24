@@ -37,7 +37,6 @@ export * from './types';
 export * from './utils/crypto';
 export * from './utils/encoding';
 export * from './utils/storage';
-export { createLocalStorageProvider, createMemoryStorageProvider } from './utils/storage';
 
 export interface PrivacySDKOptions {
   /** Override the default (testnet) network configuration. */
