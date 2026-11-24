@@ -6,23 +6,19 @@ import {
 } from '../types';
 import { ProofGenerator } from '../privacy/proof-generator';
 import { ViewingKeyManager } from './viewing-keys';
-import { poseidonHash, sha256, generateRandomField } from '../utils/crypto';
-import { StellarClient } from '../stellar/client';
+import { poseidonHash, generateRandomField } from '../utils/crypto';
 
 export class SelectiveDisclosure extends EventEmitter {
   private proofGenerator: ProofGenerator;
   private viewingKeyManager: ViewingKeyManager;
-  private client: StellarClient;
   private disclosureRequests: Map<string, ComplianceDisclosureRequest> = new Map();
   private disclosurePayloads: Map<string, DisclosurePayload> = new Map();
 
   constructor(
-    client: StellarClient,
     viewingKeyManager: ViewingKeyManager,
     proofGenerator: ProofGenerator,
   ) {
     super();
-    this.client = client;
     this.viewingKeyManager = viewingKeyManager;
     this.proofGenerator = proofGenerator;
   }
@@ -80,6 +76,7 @@ export class SelectiveDisclosure extends EventEmitter {
         timestamp: Date.now(),
       };
 
+      const payloadId = await poseidonHash([tx.txHash, requestId]);
       const keyId = this.findViewingKeyForRegulator(request.regulatorPublicKey);
       if (keyId) {
         const signedPayload = await this.viewingKeyManager.signDisclosurePayload(
@@ -87,12 +84,11 @@ export class SelectiveDisclosure extends EventEmitter {
           keyId,
         );
         payloads.push(signedPayload);
+        this.disclosurePayloads.set(payloadId, signedPayload);
       } else {
         payloads.push(payload);
+        this.disclosurePayloads.set(payloadId, payload);
       }
-
-      const payloadId = await poseidonHash([tx.txHash, requestId]);
-      this.disclosurePayloads.set(payloadId, payload);
     }
 
     return payloads;
@@ -112,47 +108,23 @@ export class SelectiveDisclosure extends EventEmitter {
     return this.approveDisclosure(requestId, transactions);
   }
 
+  /**
+   * Prepares disclosure payloads and returns a reference for them. Payloads
+   * hold plaintext, so they are never published on-chain; deliver them
+   * privately (see {@link getDisclosurePayload}).
+   */
   async discloseToRegulator(
     transactions: ShieldedTransaction[],
     regulatorPublicKey: string,
     scope: ComplianceDisclosureRequest['scope'] = 'full',
   ): Promise<string> {
-    const disclosureHash = await poseidonHash([
+    const requestId = await this.requestDisclosure({
       regulatorPublicKey,
-      JSON.stringify(transactions.map((t) => t.txHash)),
       scope,
-      Date.now().toString(),
-    ]);
-
-    for (const tx of transactions) {
-      const disclosureProof = await this.proofGenerator.generateDisclosureProof(
-        tx.commitmentHash,
-        tx.amount,
-        tx.recipient,
-        regulatorPublicKey,
-      );
-
-      const payload = {
-        transactionHash: tx.txHash,
-        commitmentHash: tx.commitmentHash,
-        amount: scope === 'amount-only' || scope === 'full' ? tx.amount : undefined,
-        recipient: scope === 'recipient-only' || scope === 'full' ? tx.recipient : undefined,
-        proof: disclosureProof,
-        scope,
-        timestamp: Date.now(),
-        regulatorSignature: await sha256(disclosureHash),
-      };
-
-      const payloadId = await poseidonHash([tx.txHash, regulatorPublicKey]);
-      this.disclosurePayloads.set(payloadId, payload as DisclosurePayload);
-
-      await this.client.discloseTransaction(
-        tx.txHash,
-        JSON.stringify(payload),
-      );
-    }
-
-    return disclosureHash;
+      reason: 'Regulator disclosure',
+    });
+    await this.approveDisclosure(requestId, transactions);
+    return requestId;
   }
 
   async verifyDisclosure(

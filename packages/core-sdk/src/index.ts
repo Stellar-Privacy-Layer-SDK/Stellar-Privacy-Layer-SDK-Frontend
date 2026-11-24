@@ -86,7 +86,6 @@ export class PrivacySDK {
     this.proofVerifier = new ProofVerifier(this.client, this.proofGenerator);
     this.viewingKeys = new ViewingKeyManager(storageProvider);
     this.selectiveDisclosure = new SelectiveDisclosure(
-      this.client,
       this.viewingKeys,
       this.proofGenerator,
     );

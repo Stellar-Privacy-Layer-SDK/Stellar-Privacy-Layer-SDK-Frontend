@@ -1,60 +1,9 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { StrKey } from '@stellar/stellar-sdk';
 import { SelectiveDisclosure } from './selective-disclosure';
 import { ViewingKeyManager } from './viewing-keys';
 import { ProofGenerator } from '../privacy/proof-generator';
-import { StellarClient } from '../stellar/client';
 import { createMemoryStorageProvider } from '../utils/storage';
 import type { ShieldedTransaction, ComplianceDisclosureRequest } from '../types';
-import { Network } from '../types';
-
-const validContractId = StrKey.encodeContract(Buffer.alloc(32, 0x01));
-
-vi.mock('@stellar/freighter-api', () => ({
-  signTransaction: async () => ({ signedTxXdr: 'AAAA...', signerAddress: '' }),
-}));
-
-vi.mock('@stellar/stellar-sdk', async () => {
-  const actual = await vi.importActual('@stellar/stellar-sdk');
-
-  class MockTxBuilder {
-    source: any;
-    opts: any;
-    op: any;
-    timeout: number | undefined;
-    constructor(source: any, opts: any) {
-      this.source = source;
-      this.opts = opts;
-    }
-    addOperation(op: any) { this.op = op; return this; }
-    setTimeout(t: number) { this.timeout = t; return this; }
-    build() { return {}; }
-    static fromXDR = () => ({});
-  }
-
-  return {
-    ...actual,
-    rpc: {
-      Server: class {
-        getAccount() { return { accountId: () => 'GA' + 'X'.repeat(54) }; }
-        simulateTransaction() { return { status: 'SUCCESS' }; }
-        sendTransaction() { return { status: 'SUCCESS' }; }
-        getTransaction() { return { status: 'SUCCESS' }; }
-        getLedgerEntries() { return { entries: [] }; }
-      },
-      Api: {
-        isSimulationSuccess: () => true,
-        isSimulationError: () => false,
-        isSimulationRestore: () => false,
-        isSimulationRaw: () => false,
-      },
-      assembleTransaction: () => ({
-        build: () => ({ toEnvelope: () => ({ toXDR: () => 'AAAA...' }) }),
-      }),
-    },
-    TransactionBuilder: MockTxBuilder,
-  };
-});
 
 function makeTx(overrides: Partial<ShieldedTransaction> = {}): ShieldedTransaction {
   return {
@@ -73,16 +22,12 @@ function makeTx(overrides: Partial<ShieldedTransaction> = {}): ShieldedTransacti
 describe('SelectiveDisclosure', () => {
   let sd: SelectiveDisclosure;
   let vk: ViewingKeyManager;
-  let client: StellarClient;
   let pg: ProofGenerator;
 
   beforeAll(async () => {
-    client = new StellarClient();
     vk = new ViewingKeyManager(createMemoryStorageProvider());
     pg = new ProofGenerator();
-    sd = new SelectiveDisclosure(client, vk, pg);
-    await client.connectWallet('GA' + 'X'.repeat(54), Network.TESTNET);
-    client.setContractId(validContractId);
+    sd = new SelectiveDisclosure(vk, pg);
   });
 
   it('creates a request ID', async () => {
@@ -139,6 +84,7 @@ describe('SelectiveDisclosure', () => {
   it('submits disclosure to regulator', async () => {
     const hash = await sd.discloseToRegulator([makeTx()], 'GA' + 'R'.repeat(54), 'full');
     expect(hash).toBeTruthy();
+    expect(sd.getDisclosurePayload(makeTx().txHash)?.scope).toBe('full');
   });
 
   it('verifies a disclosure payload', async () => {

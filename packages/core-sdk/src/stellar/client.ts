@@ -286,14 +286,6 @@ export class StellarClient extends EventEmitter {
     );
   }
 
-  async discloseTransaction(txHash: string, disclosureData: string): Promise<string> {
-    return this.sendTransaction(
-      PRIVACY_CONTRACT_METHODS.DISCLOSE_TRANSACTION,
-      nativeToScVal(txHash, { type: 'string' }),
-      nativeToScVal(disclosureData, { type: 'string' }),
-    );
-  }
-
   private errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
   }
