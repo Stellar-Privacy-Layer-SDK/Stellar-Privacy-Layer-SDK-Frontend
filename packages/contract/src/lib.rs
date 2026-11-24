@@ -12,7 +12,7 @@
 //!   encoded as `c1 || c0`)
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, vec, Address, BytesN, Env, String, Symbol,
+    contract, contractimpl, contracttype, symbol_short, vec, BytesN, Env, String, Symbol,
     Vec, crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine},
 };
 
@@ -59,9 +59,11 @@ pub struct PrivacyVerifier;
 impl PrivacyVerifier {
     /// Deposit a commitment hash into the shielded pool.
     pub fn deposit(env: Env, commitment: BytesN<32>, amount: String, token: String) {
-        let caller = env.current_contract_address();
-        let key = (COMMITMENTS, commitment.clone());
-        env.storage().persistent().set(&key, &(amount, token, caller));
+        let key = (COMMITMENTS, commitment);
+        if env.storage().persistent().has(&key) {
+            panic!("commitment already exists");
+        }
+        env.storage().persistent().set(&key, &(amount, token));
     }
 
     /// Withdraw from the shielded pool by spending a nullifier.
@@ -160,8 +162,7 @@ impl PrivacyVerifier {
         let key = (COMMITMENTS, commitment);
         env.storage()
             .persistent()
-            .get::<_, (String, String, Address)>(&key)
-            .map(|(a, t, _)| (a, t))
+            .get(&key)
     }
 }
 
@@ -236,6 +237,16 @@ mod test {
         let (stored_amount, stored_token) = stored.unwrap();
         assert_eq!(stored_amount, amount);
         assert_eq!(stored_token, token);
+    }
+
+    #[test]
+    #[should_panic(expected = "commitment already exists")]
+    fn test_duplicate_commitment_rejected() {
+        let env = Env::default();
+        let client = deploy(&env);
+        let commitment = BytesN::from_array(&env, &[0xaa; 32]);
+        client.deposit(&commitment, &String::from_str(&env, "100"), &String::from_str(&env, "USDC"));
+        client.deposit(&commitment, &String::from_str(&env, "1"), &String::from_str(&env, "USDC"));
     }
 
     #[test]
