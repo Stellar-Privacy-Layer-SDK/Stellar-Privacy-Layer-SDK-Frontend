@@ -151,7 +151,7 @@ describe('ShieldedTransfer', () => {
         '150',
       );
       expect(result.txHash).toBeTruthy();
-      expect(result.nullifier).toMatch(/^0x[0-9a-f]{64}$/);
+      expect(result.nullifier).toBe(deposit.nullifier);
       expect(await transfer.getCommitment(deposit.commitmentHash)).toBeUndefined();
     });
 

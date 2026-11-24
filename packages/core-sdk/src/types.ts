@@ -61,6 +61,7 @@ export interface MerkleNode {
 
 export interface Commitment {
   hash: string;
+  nullifier: string;
   amount: string;
   token: string;
   recipient: string;

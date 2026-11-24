@@ -6,7 +6,7 @@ import {
   Commitment,
   ShieldedTransaction,
 } from '../types';
-import { generateRandomField, poseidonHash, generateMerklePath } from '../utils/crypto';
+import { generateRandomField, generateMerklePath } from '../utils/crypto';
 import { createLocalStorageProvider } from '../utils/storage';
 import { isValidPublicKey, isValidAmount } from '../utils/encoding';
 import type { StorageProvider } from '../types';
@@ -128,6 +128,7 @@ export class ShieldedTransfer {
 
       const commitment: Commitment = {
         hash: commitmentHash,
+        nullifier,
         amount: params.amount,
         token: params.token,
         recipient: params.recipient,
@@ -187,7 +188,14 @@ export class ShieldedTransfer {
       throw new Error('Invalid amount: must be a positive number');
     }
 
-    const nullifier = await poseidonHash([commitmentHash, recipient]);
+    // The nullifier is fixed at deposit time. Deriving it from the recipient
+    // would let one commitment be spent once per recipient.
+    const nullifier =
+      commitment.nullifier ??
+      this.transactions.find((tx) => tx.commitmentHash === commitmentHash)?.nullifier;
+    if (!nullifier) {
+      throw new Error('Commitment has no nullifier and cannot be withdrawn');
+    }
 
     // Build a real Merkle membership proof for this commitment from the set of
     // known commitments (previously this was always an empty array, making the
