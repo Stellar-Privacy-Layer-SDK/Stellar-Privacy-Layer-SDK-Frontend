@@ -7,12 +7,19 @@ import { decodeNote } from './note.js';
 import { SnarkjsProver } from './snarkjs-prover.js';
 import type { Prover } from './prover.js';
 import { NotSubmittedError, type StellarClient } from '../stellar/client.js';
+import { MerkleTree } from '../utils/merkle.js';
 import { createMemoryStorageProvider } from '../utils/storage.js';
 import { Network, type ZKProof } from '../types.js';
 
 const CONTRACT = 'CPOOL';
 const recipient = Keypair.random().publicKey();
 const proof = { pi_a: ['1', '2'] } as unknown as ZKProof;
+
+const rootOf = async (leaves: string[]) => {
+  const tree = new MerkleTree();
+  for (const leaf of leaves) await tree.append(leaf);
+  return tree.root;
+};
 
 /** In-memory stand-in for the contract. */
 function fakeChain() {
@@ -23,9 +30,9 @@ function fakeChain() {
   const client = {
     getNetworkConfig: vi.fn(() => ({ network: Network.TESTNET, contractId: CONTRACT })),
     getPoolInfo: vi.fn(async () => ({
-      token: 'CTOKEN', denomination: '1000000000', depositCount: leaves.length, root: '0x0',
+      token: 'CTOKEN', denomination: '1000000000', depositCount: leaves.length, root: await rootOf(leaves),
     })),
-    getLeaves: vi.fn(async () => [...leaves]),
+    getLeaves: vi.fn(async (start = 0) => leaves.slice(start)),
     isNullifierSpent: vi.fn(async (n: string) => spent.has(n)),
     getTransactionStatus: vi.fn(async (hash: string) => statuses[hash] ?? 'SUCCESS'),
     deposit: vi.fn(async (c: string) => {
@@ -144,6 +151,21 @@ describe('ShieldedPool', () => {
     const bare = new ShieldedPool(chain.client as unknown as StellarClient, undefined, storage);
     await bare.initialize();
     await expect(bare.withdraw(note.commitment, recipient)).rejects.toThrow('No prover');
+  });
+
+  it('fetches only new commitments and recovers from a reset pool', async () => {
+    const pool = await open();
+    await pool.deposit();
+    await pool.refresh();
+    await pool.deposit();
+    await Promise.all([pool.refresh(), pool.refresh()]);
+    expect(chain.client.getLeaves.mock.calls.map(([start]) => start)).toEqual([0, 1]);
+    chain.leaves.splice(0, 2, '0x5', '0x6');
+    const { note } = await pool.deposit();
+    chain.leaves.splice(0, 3, note.commitment, '0x7');
+    await pool.withdraw(note.commitment, recipient);
+    const { merkleProof } = vi.mocked(prover.proveWithdrawal).mock.lastCall![0];
+    expect(merkleProof.root).toBe(await rootOf(chain.leaves));
   });
 
   it('backs up and restores notes', async () => {

@@ -5,7 +5,7 @@ import type { PoolInfo, ShieldedTransaction, StorageProvider } from '../types.js
 import { generateRandomField } from '../utils/crypto.js';
 import { formatUnits, isValidPublicKey } from '../utils/encoding.js';
 import { logger } from '../utils/logger.js';
-import { buildMerkleProof } from '../utils/merkle.js';
+import { MerkleTree } from '../utils/merkle.js';
 import { createLocalStorageProvider } from '../utils/storage.js';
 import { decodeNote, deriveNote, encodeNote, type Note } from './note.js';
 import type { Prover } from './prover.js';
@@ -25,6 +25,8 @@ const EXPIRY_MS = 5 * 60_000;
 export class ShieldedPool extends EventEmitter {
   private notes: Note[] = [];
   private transactions: ShieldedTransaction[] = [];
+  private trees = new Map<string, MerkleTree>();
+  private syncing: Promise<unknown> = Promise.resolve();
 
   constructor(
     private client: StellarClient,
@@ -58,8 +60,25 @@ export class ShieldedPool extends EventEmitter {
     this.emit('change');
   }
 
-  private syncLeaves(): Promise<string[]> {
-    return this.client.getLeaves();
+  /** Fetches only new commitments, unless the pool changed underneath. */
+  private async syncTree(): Promise<MerkleTree> {
+    const { network, contractId } = this.client.getNetworkConfig();
+    const id = `${network}:${contractId}`;
+    // Serialized so concurrent calls cannot append the same leaves twice.
+    const result = this.syncing.then(async () => {
+      let tree = this.trees.get(id) ?? new MerkleTree();
+      const { root, depositCount } = await this.client.getPoolInfo();
+      if (depositCount < tree.leaves.length || (depositCount === tree.leaves.length && depositCount > 0 && root !== tree.root)) {
+        tree = new MerkleTree(); // e.g. a testnet reset
+      }
+      if (depositCount > tree.leaves.length) {
+        for (const leaf of await this.client.getLeaves(tree.leaves.length)) await tree.append(leaf);
+      }
+      this.trees.set(id, tree);
+      return tree;
+    });
+    this.syncing = result.catch(() => {});
+    return result;
   }
 
   getInfo(): Promise<PoolInfo> {
@@ -138,11 +157,11 @@ export class ShieldedPool extends EventEmitter {
     }
     if (!this.prover) throw new Error('No prover configured');
 
-    const leaves = await this.syncLeaves();
-    const index = leaves.indexOf(note.commitment);
+    const tree = await this.syncTree();
+    const index = tree.leaves.indexOf(note.commitment);
     if (index === -1) throw new Error('The deposit is not confirmed on-chain yet');
 
-    const merkleProof = await buildMerkleProof(leaves, index);
+    const merkleProof = tree.prove(index);
     const { proof } = await this.prover.proveWithdrawal({
       secret: note.secret,
       merkleProof,
@@ -167,7 +186,7 @@ export class ShieldedPool extends EventEmitter {
       this.transactions.filter((t) => t.status === 'pending').map((t) => t.commitmentHash),
     );
     const open = notes.filter((n) => n.status !== 'spent' || unsettled.has(n.commitment));
-    const inPool = open.length > 0 ? new Set(await this.syncLeaves()) : new Set<string>();
+    const inPool = open.length > 0 ? new Set((await this.syncTree()).leaves) : new Set<string>();
 
     for (const note of open) {
       const deposited = inPool.has(note.commitment);
