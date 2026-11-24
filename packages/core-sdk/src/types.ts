@@ -19,48 +19,12 @@ export interface WalletInfo {
   isConnected: boolean;
 }
 
-export interface ShieldedTransferParams {
-  amount: string;
-  token: string;
-  recipient: string;
-  memo?: string;
-}
-
-export interface ShieldedTransferResult {
-  txHash: string;
-  commitmentHash: string;
-  nullifier: string;
-  blockNumber?: number;
-  status: 'pending' | 'confirmed' | 'failed';
-}
-
-export interface ProofInput {
-  senderSecret: string;
-  recipientPublicKey: string;
-  amount: string;
-  token: string;
-  merkleRoot: string;
-  merklePath: string[];
-  nullifier: string;
-  commitment: string;
-}
-
 export interface ZKProof {
   pi_a: [string, string];
   pi_b: [[string, string], [string, string]];
   pi_c: [string, string];
   protocol: string;
   curve: string;
-}
-
-export interface Commitment {
-  hash: string;
-  nullifier: string;
-  amount: string;
-  token: string;
-  recipient: string;
-  timestamp: number;
-  blockNumber?: number;
 }
 
 export interface ViewingKey {
@@ -87,8 +51,6 @@ export interface DisclosurePayload {
   commitmentHash: string;
   amount?: string;
   recipient?: string;
-  sender?: string;
-  proof: ZKProof;
   scope: string;
   timestamp: number;
   signerPublicKey?: string;
@@ -96,14 +58,15 @@ export interface DisclosurePayload {
 }
 
 export interface ShieldedTransaction {
-  /** Absent on records saved before withdrawals were tracked (all deposits). */
-  type?: 'deposit' | 'withdrawal';
+  type: 'deposit' | 'withdrawal';
   txHash: string;
   commitmentHash: string;
   nullifier: string;
+  /** Whole token units. */
   amount: string;
   token: string;
-  recipient: string;
+  /** Only known for withdrawals. */
+  recipient?: string;
   timestamp: number;
   status: 'pending' | 'confirmed' | 'failed';
   blockNumber?: number;
@@ -121,4 +84,12 @@ export interface StorageProvider {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
+}
+
+export interface PoolInfo {
+  token: string;
+  /** Amount of every deposit, in the token's smallest unit. */
+  denomination: string;
+  depositCount: number;
+  root: string;
 }

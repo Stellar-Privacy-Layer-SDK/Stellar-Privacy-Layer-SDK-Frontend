@@ -1,166 +1,68 @@
-import { EventEmitter } from 'events';
-import {
-  ShieldedTransaction,
-  DisclosurePayload,
+import { poseidonHash } from '../utils/crypto.js';
+import type {
   ComplianceDisclosureRequest,
-} from '../types';
-import { ProofGenerator } from '../privacy/proof-generator';
-import { ViewingKeyManager } from './viewing-keys';
-import { poseidonHash, generateRandomField } from '../utils/crypto';
+  DisclosurePayload,
+  ShieldedTransaction,
+} from '../types.js';
+import type { ViewingKeyManager } from './viewing-keys.js';
 
-export class SelectiveDisclosure extends EventEmitter {
-  private proofGenerator: ProofGenerator;
-  private viewingKeyManager: ViewingKeyManager;
-  private disclosureRequests: Map<string, ComplianceDisclosureRequest> = new Map();
-  private disclosurePayloads: Map<string, DisclosurePayload> = new Map();
+/**
+ * Builds scoped, signed statements about transactions for a regulator.
+ *
+ * Payloads are attestations by the viewing key holder, not zero-knowledge
+ * proofs. They hold plaintext and are never published; deliver them privately.
+ */
+export class SelectiveDisclosure {
+  private payloads = new Map<string, DisclosurePayload>();
 
-  constructor(
-    viewingKeyManager: ViewingKeyManager,
-    proofGenerator: ProofGenerator,
-  ) {
-    super();
-    this.viewingKeyManager = viewingKeyManager;
-    this.proofGenerator = proofGenerator;
-  }
+  constructor(private viewingKeys: ViewingKeyManager) {}
 
-  async requestDisclosure(
-    request: ComplianceDisclosureRequest,
-  ): Promise<string> {
-    const requestId = await poseidonHash([
-      request.regulatorPublicKey,
-      Date.now().toString(),
-      await generateRandomField(),
-    ]);
-
-    this.disclosureRequests.set(requestId, request);
-
-    return requestId;
-  }
-
-  async approveDisclosure(
-    requestId: string,
-    transactions: ShieldedTransaction[],
-  ): Promise<DisclosurePayload[]> {
-    const request = this.disclosureRequests.get(requestId);
-    if (!request) {
-      throw new Error('Disclosure request not found');
-    }
-
-    const payloads: DisclosurePayload[] = [];
-
-    for (const tx of transactions) {
-      let sanitizedAmount: string | undefined;
-      let sanitizedRecipient: string | undefined;
-
-      if (request.scope === 'full' || request.scope === 'amount-only') {
-        sanitizedAmount = tx.amount;
-      }
-      if (request.scope === 'full' || request.scope === 'recipient-only') {
-        sanitizedRecipient = tx.recipient;
-      }
-
-      const disclosureProof = await this.proofGenerator.generateDisclosureProof(
-        tx.commitmentHash,
-        sanitizedAmount ?? '',
-        sanitizedRecipient ?? '',
-        request.regulatorPublicKey,
-      );
-
-      const payload: DisclosurePayload = {
-        transactionHash: tx.txHash,
-        commitmentHash: tx.commitmentHash,
-        amount: sanitizedAmount,
-        recipient: sanitizedRecipient,
-        proof: disclosureProof,
-        scope: request.scope,
-        timestamp: Date.now(),
-      };
-
-      const payloadId = await poseidonHash([tx.txHash, requestId]);
-      const keyId = this.findViewingKeyForRegulator(request.regulatorPublicKey);
-      if (keyId) {
-        const signedPayload = await this.viewingKeyManager.signDisclosurePayload(
-          payload,
-          keyId,
-        );
-        payloads.push(signedPayload);
-        this.disclosurePayloads.set(payloadId, signedPayload);
-      } else {
-        payloads.push(payload);
-        this.disclosurePayloads.set(payloadId, payload);
-      }
-    }
-
-    return payloads;
-  }
-
-  async requestAuditDisclosure(
-    transactions: ShieldedTransaction[],
-    regulatorPublicKey: string,
-  ): Promise<DisclosurePayload[]> {
-    const request: ComplianceDisclosureRequest = {
-      regulatorPublicKey,
-      scope: 'full',
-      reason: 'Compliance audit',
-    };
-
-    const requestId = await this.requestDisclosure(request);
-    return this.approveDisclosure(requestId, transactions);
-  }
-
-  /**
-   * Prepares disclosure payloads and returns a reference for them. Payloads
-   * hold plaintext, so they are never published on-chain; deliver them
-   * privately (see {@link getDisclosurePayload}).
-   */
-  async discloseToRegulator(
+  /** Creates one signed payload per transaction. Grants a viewing key if needed. */
+  async disclose(
     transactions: ShieldedTransaction[],
     regulatorPublicKey: string,
     scope: ComplianceDisclosureRequest['scope'] = 'full',
-  ): Promise<string> {
-    const requestId = await this.requestDisclosure({
-      regulatorPublicKey,
-      scope,
-      reason: 'Regulator disclosure',
-    });
-    await this.approveDisclosure(requestId, transactions);
-    return requestId;
-  }
+  ): Promise<{ reference: string; payloads: DisclosurePayload[] }> {
+    const existing = this.viewingKeys
+      .getActiveViewingKeys()
+      .find(
+        (k) =>
+          k.grantedBy === regulatorPublicKey && k.scope === scope && this.viewingKeys.getPrivateKey(k.id),
+      );
+    const key = existing ?? (await this.viewingKeys.grantViewingKey(regulatorPublicKey, scope));
 
-  async verifyDisclosure(
-    payload: DisclosurePayload,
-    regulatorPublicKey: string,
-  ): Promise<boolean> {
-    const validProof = await this.proofGenerator.verifyProof(payload.proof, [
-      payload.commitmentHash,
-      payload.amount || '',
-      payload.recipient || '',
-      regulatorPublicKey,
-    ]);
-
-    if (!validProof) return false;
-
-    if (payload.regulatorSignature) {
-      return this.viewingKeyManager.verifyDisclosurePayload(payload);
-    }
-
-    return true;
-  }
-
-  getDisclosurePayload(txHash: string): DisclosurePayload | undefined {
-    for (const [, payload] of this.disclosurePayloads) {
-      if (payload.transactionHash === txHash) {
-        return payload;
-      }
-    }
-    return undefined;
-  }
-
-  private findViewingKeyForRegulator(regulatorPublicKey: string): string | undefined {
-    const keys = this.viewingKeyManager.getActiveViewingKeys();
-    const regulatorKey = keys.find(
-      (k) => k.grantedBy === regulatorPublicKey && this.viewingKeyManager.getPrivateKey(k.id) !== undefined,
+    const payloads = await Promise.all(
+      transactions.map((tx) =>
+        this.viewingKeys.signDisclosurePayload(
+          {
+            transactionHash: tx.txHash,
+            commitmentHash: tx.commitmentHash,
+            amount: scope === 'recipient-only' ? undefined : tx.amount,
+            recipient: scope === 'amount-only' ? undefined : tx.recipient,
+            scope,
+            timestamp: Date.now(),
+          },
+          key.id,
+        ),
+      ),
     );
-    return regulatorKey?.id;
+    payloads.forEach((p) => this.payloads.set(p.transactionHash, p));
+    const reference = await poseidonHash([
+      regulatorPublicKey,
+      ...payloads.map((p) => p.regulatorSignature ?? ''),
+    ]);
+    return { reference, payloads };
+  }
+
+  /** Checks the signature and that it was made by the expected signer. */
+  async verify(payload: DisclosurePayload, expectedSigner: string): Promise<boolean> {
+    return (
+      payload.signerPublicKey === expectedSigner &&
+      this.viewingKeys.verifyDisclosurePayload(payload)
+    );
+  }
+
+  getPayload(txHash: string): DisclosurePayload | undefined {
+    return this.payloads.get(txHash);
   }
 }

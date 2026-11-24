@@ -31,7 +31,7 @@ describe('Layout', () => {
     renderLayout();
     expect(screen.getByText('Stellar Privacy')).toBeDefined();
     expect(screen.getByText('Dashboard')).toBeDefined();
-    expect(screen.getByText('Shielded Transfer')).toBeDefined();
+    expect(screen.getByText('Deposit')).toBeDefined();
     expect(screen.getByText('Compliance')).toBeDefined();
     expect(screen.getByText('Viewing Keys')).toBeDefined();
     expect(screen.getByText('History')).toBeDefined();

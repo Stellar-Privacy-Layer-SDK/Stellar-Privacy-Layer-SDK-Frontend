@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { Network } from '@stellar-privacy/sdk';
-import type { ViewingKey } from '@stellar-privacy/sdk';
+import type { Note, ViewingKey } from '@stellar-privacy/sdk';
 import {
   useWallet,
   useNetwork,
   useSDKReady,
   useViewingKeys,
-  useShieldedTransfer,
+  usePool,
 } from './useSDK';
 
 const { mocks } = vi.hoisted(() => ({
@@ -31,12 +31,15 @@ const { mocks } = vi.hoisted(() => ({
       on: vi.fn(),
       removeListener: vi.fn(),
     },
-    shieldedTransfer: {
+    pool: {
+      getNotes: vi.fn((): unknown[] => []),
+      getTransactions: vi.fn((): unknown[] => []),
       deposit: vi.fn(),
-      getTransactionHistory: vi.fn(),
-      getCommitments: vi.fn(async () => []),
-      refreshPendingTransactions: vi.fn(),
       withdraw: vi.fn(),
+      importNote: vi.fn(),
+      refresh: vi.fn(),
+      on: vi.fn(),
+      removeListener: vi.fn(),
     },
     viewingKeys: {
       getAllViewingKeys: vi.fn<() => Partial<ViewingKey>[]>(() => []),
@@ -67,7 +70,7 @@ vi.mock('@stellar-privacy/sdk', () => ({
   PrivacySDK: class {
     client = mocks.client;
     wallet = mocks.wallet;
-    shieldedTransfer = mocks.shieldedTransfer;
+    pool = mocks.pool;
     viewingKeys = mocks.viewingKeys;
     initialize = vi.fn().mockResolvedValue(undefined);
   },
@@ -196,65 +199,39 @@ describe('useViewingKeys', () => {
   });
 });
 
-describe('useShieldedTransfer', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.shieldedTransfer.deposit.mockResolvedValue({
-      txHash: 'hash-1',
-      commitmentHash: 'cm-1',
-      nullifier: 'n-1',
-      status: 'pending',
-    });
-    mocks.shieldedTransfer.getTransactionHistory.mockResolvedValue([{ txHash: 'hash-1' }]);
+describe('usePool', () => {
+  const note = { commitment: '0x1' } as Note;
+
+  it('follows pool changes', async () => {
+    const { result, unmount } = renderHook(() => usePool());
+    await waitFor(() => expect(mocks.pool.on).toHaveBeenCalled());
+    mocks.pool.getNotes.mockReturnValue([note]);
+    act(() => mocks.pool.on.mock.calls.at(-1)![1]());
+    expect(result.current.notes).toEqual([note]);
+    unmount();
+    expect(mocks.pool.removeListener).toHaveBeenCalled();
   });
 
-  it('deposits and refreshes the transaction history', async () => {
-    const { result } = renderHook(() => useShieldedTransfer());
+  it('forwards actions', async () => {
+    const { result } = renderHook(() => usePool());
     await act(async () => {
-      await result.current.deposit('10', 'USDC', publicKey, 'memo');
+      await result.current.deposit();
+      await result.current.withdraw(note, publicKey);
+      await result.current.importNote('backup');
     });
-    expect(mocks.shieldedTransfer.deposit).toHaveBeenCalledWith({
-      amount: '10',
-      token: 'USDC',
-      recipient: publicKey,
-      memo: 'memo',
-    });
-    expect(mocks.shieldedTransfer.getTransactionHistory).toHaveBeenCalled();
-    expect(result.current.transactions).toHaveLength(1);
+    expect(mocks.pool.deposit).toHaveBeenCalled();
+    expect(mocks.pool.withdraw).toHaveBeenCalledWith('0x1', publicKey);
+    expect(mocks.pool.importNote).toHaveBeenCalledWith('backup');
   });
 
-  it('surfaces deposit errors', async () => {
-    mocks.shieldedTransfer.deposit.mockRejectedValueOnce(new Error('proof failed'));
-    const { result } = renderHook(() => useShieldedTransfer());
+  it('surfaces action errors and swallows refresh errors', async () => {
+    mocks.pool.deposit.mockRejectedValueOnce(new Error('declined'));
+    mocks.pool.refresh.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => usePool());
     await act(async () => {
-      await expect(result.current.deposit('10', 'USDC', publicKey)).rejects.toThrow(
-        'proof failed',
-      );
+      await expect(result.current.deposit()).rejects.toThrow('declined');
+      await result.current.refresh();
     });
-    expect(result.current.error).toBe('proof failed');
-  });
-
-  it('withdraws the whole commitment', async () => {
-    mocks.shieldedTransfer.withdraw.mockResolvedValue({ txHash: 'w' });
-    const { result } = renderHook(() => useShieldedTransfer());
-    const commitment = {
-      hash: 'cm-1', nullifier: 'n', amount: '10', token: 'XLM', recipient: publicKey, timestamp: 1,
-    };
-    await act(async () => {
-      await result.current.withdraw(commitment, publicKey);
-    });
-    expect(mocks.shieldedTransfer.withdraw).toHaveBeenCalledWith('cm-1', publicKey, '10');
-  });
-
-  it('reloads the history only when a pending status changed', async () => {
-    const { result } = renderHook(() => useShieldedTransfer());
-    await waitFor(() => expect(result.current.transactions).toHaveLength(1));
-    mocks.shieldedTransfer.getTransactionHistory.mockClear();
-    mocks.shieldedTransfer.refreshPendingTransactions.mockResolvedValueOnce(false);
-    await act(() => result.current.refreshPending());
-    expect(mocks.shieldedTransfer.getTransactionHistory).not.toHaveBeenCalled();
-    mocks.shieldedTransfer.refreshPendingTransactions.mockResolvedValueOnce(true);
-    await act(() => result.current.refreshPending());
-    expect(mocks.shieldedTransfer.getTransactionHistory).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBe('declined');
   });
 });

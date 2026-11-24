@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { WalletManager } from './wallet';
-import { Network } from '../types';
+import { WalletManager } from './wallet.js';
+import { Network } from '../types.js';
 
 const mockFreighter = {
   isConnected: vi.fn(),

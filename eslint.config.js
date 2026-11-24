@@ -13,7 +13,7 @@ export default tseslint.config(
   },
   {
     files: ['scripts/**/*.mjs'],
-    languageOptions: { globals: { console: 'readonly', process: 'readonly' } },
+    languageOptions: { globals: { console: 'readonly', process: 'readonly', fetch: 'readonly', Buffer: 'readonly', URL: 'readonly' } },
   },
   {
     ignores: ['**/dist/**', '**/node_modules/**', 'build/**', 'artifacts/**', '**/coverage/**'],

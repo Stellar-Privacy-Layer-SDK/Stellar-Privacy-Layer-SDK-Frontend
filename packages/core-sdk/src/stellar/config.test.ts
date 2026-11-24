@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { NETWORK_CONFIGS, PRIVACY_CONTRACT_METHODS, resolveNetworkConfig } from './config';
-import { Network } from '../types';
+import { NETWORK_CONFIGS, resolveNetworkConfig } from './config.js';
+import { Network } from '../types.js';
 import { Networks } from '@stellar/stellar-sdk';
 
 describe('NETWORK_CONFIGS', () => {
@@ -19,12 +19,6 @@ describe('NETWORK_CONFIGS', () => {
     expect(NETWORK_CONFIGS[Network.TESTNET].networkPassphrase).toBe(Networks.TESTNET);
     expect(NETWORK_CONFIGS[Network.FUTURENET].networkPassphrase).toBe(Networks.FUTURENET);
     expect(NETWORK_CONFIGS[Network.SANDBOX].networkPassphrase).toBe(Networks.STANDALONE);
-  });
-
-  it('exposes privacy contract method names', () => {
-    expect(PRIVACY_CONTRACT_METHODS.DEPOSIT).toBe('deposit');
-    expect(PRIVACY_CONTRACT_METHODS.VERIFY_PROOF).toBe('verify_proof');
-    expect(PRIVACY_CONTRACT_METHODS.SET_VIEWING_KEY).toBe('set_viewing_key');
   });
 });
 

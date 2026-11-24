@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   PrivacySDK,
   WalletInfo,
-  Commitment,
+  Note,
   ShieldedTransaction,
   ViewingKey,
   Network,
@@ -17,10 +17,7 @@ const NETWORK_STORAGE_KEY = 'stellar-privacy:network';
 let sdkInstance: PrivacySDK | null = null;
 let initPromise: Promise<void> | null = null;
 
-/**
- * Uses the real Groth16 prover when `VITE_ZK_ARTIFACTS_URL` is configured;
- * otherwise falls back to the dev-only simulated prover (default).
- */
+/** Withdrawals need `VITE_ZK_ARTIFACTS_URL`; deposits work without it. */
 function createProver(): SnarkjsProver | undefined {
   const baseUrl = getZkArtifactsBaseUrl();
   if (!baseUrl) return undefined;
@@ -118,94 +115,53 @@ export function useWallet() {
   return { walletInfo, isConnecting, error, connect, disconnect };
 }
 
-export function useShieldedTransfer() {
+export function usePool() {
   const sdk = useSDK();
   const ready = useSDKReady();
+  const [notes, setNotes] = useState<Note[]>([]);
   const [transactions, setTransactions] = useState<ShieldedTransaction[]>([]);
-  const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const deposit = useCallback(
-    async (amount: string, token: string, recipient: string, memo?: string) => {
-      setIsProcessing(true);
-      setError(null);
-      try {
-        const result = await sdk.shieldedTransfer.deposit({
-          amount,
-          token,
-          recipient,
-          memo,
-        });
-        const history = await sdk.shieldedTransfer.getTransactionHistory();
-        setTransactions(history);
-        return result;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Transfer failed';
-        setError(msg);
-        throw e;
-      } finally {
-        setIsProcessing(false);
-      }
-    },
-    [sdk],
-  );
-
-  const refreshHistory = useCallback(async () => {
-    try {
-      const history = await sdk.shieldedTransfer.getTransactionHistory();
-      setTransactions(history);
-      setCommitments(await sdk.shieldedTransfer.getCommitments());
-    } catch {
-      // history refresh is best-effort
-    }
-  }, [sdk]);
-
   useEffect(() => {
-    if (ready) void refreshHistory();
-  }, [ready, refreshHistory]);
+    if (!ready) return;
+    const sync = () => {
+      setNotes(sdk.pool.getNotes());
+      setTransactions(sdk.pool.getTransactions());
+    };
+    sync();
+    sdk.pool.on('change', sync);
+    return () => {
+      sdk.pool.removeListener('change', sync);
+    };
+  }, [sdk, ready]);
 
-  const withdraw = useCallback(
-    async (commitment: Commitment, recipient: string) => {
-      setIsProcessing(true);
-      setError(null);
-      try {
-        const result = await sdk.shieldedTransfer.withdraw(
-          commitment.hash,
-          recipient,
-          commitment.amount,
-        );
-        await refreshHistory();
-        return result;
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Withdrawal failed');
-        throw e;
-      } finally {
-        setIsProcessing(false);
-      }
-    },
-    [sdk, refreshHistory],
-  );
-
-  /** Polls the network, then reloads the history if anything changed. */
-  const refreshPending = useCallback(async () => {
+  const run = useCallback(async <T,>(action: () => Promise<T>): Promise<T> => {
+    setIsProcessing(true);
+    setError(null);
     try {
-      if (await sdk.shieldedTransfer.refreshPendingTransactions()) await refreshHistory();
-    } catch {
-      // retried on the next poll
+      return await action();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      throw e;
+    } finally {
+      setIsProcessing(false);
     }
-  }, [sdk, refreshHistory]);
+  }, []);
 
-  return {
-    transactions,
-    commitments,
-    isProcessing,
-    error,
-    deposit,
-    withdraw,
-    refreshHistory,
-    refreshPending,
-  };
+  const deposit = useCallback(() => run(() => sdk.pool.deposit()), [sdk, run]);
+  const withdraw = useCallback(
+    (note: Note, recipient: string) => run(() => sdk.pool.withdraw(note.commitment, recipient)),
+    [sdk, run],
+  );
+  const importNote = useCallback(
+    (text: string) => run(() => sdk.pool.importNote(text)),
+    [sdk, run],
+  );
+  /** Best effort; callers poll. */
+  const refresh = useCallback(() => sdk.pool.refresh().catch(() => {}), [sdk]);
+
+  return { notes, transactions, isProcessing, error, deposit, withdraw, importNote, refresh };
 }
 
 export function useViewingKeys() {

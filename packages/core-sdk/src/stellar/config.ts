@@ -1,4 +1,4 @@
-import { Network, NetworkConfig } from '../types';
+import { Network, NetworkConfig } from '../types.js';
 
 export const NETWORK_CONFIGS: Record<Network, NetworkConfig> = {
   [Network.PUBLIC]: {
@@ -53,13 +53,3 @@ export function resolveNetworkConfig(
     contractId: overrides.contractId?.trim() || base.contractId,
   };
 }
-
-export const PRIVACY_CONTRACT_METHODS = {
-  DEPOSIT: 'deposit',
-  WITHDRAW: 'withdraw',
-  VERIFY_PROOF: 'verify_proof',
-  GET_COMMITMENT: 'get_commitment',
-  IS_NULLIFIER_SPENT: 'is_nullifier_spent',
-  SET_VIEWING_KEY: 'set_viewing_key',
-  REVOKE_VIEWING_KEY: 'revoke_viewing_key',
-} as const;

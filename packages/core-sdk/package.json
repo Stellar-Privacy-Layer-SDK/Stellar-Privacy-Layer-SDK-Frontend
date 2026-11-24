@@ -1,7 +1,7 @@
 {
   "name": "@stellar-privacy/sdk",
-  "version": "1.0.0",
-  "description": "Core SDK for Stellar Privacy Layer — abstracts Stellar ZK primitives into simple functions",
+  "version": "2.0.0",
+  "description": "SDK for fixed-denomination shielded pools on Stellar",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -42,5 +42,6 @@
     "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
-  }
+  },
+  "license": "MIT"
 }

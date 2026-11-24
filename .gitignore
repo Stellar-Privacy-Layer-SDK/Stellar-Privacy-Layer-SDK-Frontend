@@ -25,3 +25,4 @@ npm-debug.log*
 # Generated ZK artifacts
 build/
 artifacts/
+.cache/

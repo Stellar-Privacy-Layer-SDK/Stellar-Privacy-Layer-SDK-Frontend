@@ -1,7 +1,7 @@
 import { Routes, Route } from 'react-router';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
-import { ShieldedTransfer } from './pages/ShieldedTransfer';
+import { Deposit } from './pages/Deposit';
 import { Withdraw } from './pages/Withdraw';
 import { Compliance } from './pages/Compliance';
 import { ViewingKeys } from './pages/ViewingKeys';
@@ -12,7 +12,7 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/shielded-transfer" element={<ShieldedTransfer />} />
+        <Route path="/deposit" element={<Deposit />} />
         <Route path="/withdraw" element={<Withdraw />} />
         <Route path="/compliance" element={<Compliance />} />
         <Route path="/viewing-keys" element={<ViewingKeys />} />

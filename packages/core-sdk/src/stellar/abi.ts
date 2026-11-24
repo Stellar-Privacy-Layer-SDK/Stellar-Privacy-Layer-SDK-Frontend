@@ -1,6 +1,8 @@
-import { toFieldElement } from '../utils/crypto';
-import { fromHex } from '../utils/encoding';
-import type { ZKProof } from '../types';
+import { Address } from '@stellar/stellar-sdk';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { toFieldElement } from '../utils/crypto.js';
+import { fromHex, toHex } from '../utils/encoding.js';
+import type { ZKProof } from '../types.js';
 
 /** 32-byte big-endian encoding of a BN254 scalar, as the contract expects. */
 export function fieldBytes(value: string): Uint8Array {
@@ -22,4 +24,14 @@ export function encodeGroth16Proof({ pi_a, pi_b, pi_c }: ZKProof) {
     b: coordinates(pi_b[0][1], pi_b[0][0], pi_b[1][1], pi_b[1][0]),
     c: coordinates(pi_c[0], pi_c[1]),
   };
+}
+
+/**
+ * The address as the contract binds it into proofs: sha256 of its XDR with the
+ * top byte cleared so it fits the field.
+ */
+export function recipientField(address: string): string {
+  const digest = sha256(Uint8Array.from(Address.fromString(address).toScVal().toXDR()));
+  digest[0] = 0;
+  return '0x' + toHex(digest);
 }

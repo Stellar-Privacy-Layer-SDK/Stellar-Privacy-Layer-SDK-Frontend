@@ -11,7 +11,7 @@ import {
   sanitizeMemo,
   isValidPublicKey,
   isValidAmount,
-} from './encoding';
+} from './encoding.js';
 
 describe('toHex', () => {
   it('converts bytes to hex', () => {

@@ -8,7 +8,7 @@
  *   environment variable (dev / Node environments).
  */
 
-import type { LogLevel } from '../types';
+import type { LogLevel } from '../types.js';
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 10,

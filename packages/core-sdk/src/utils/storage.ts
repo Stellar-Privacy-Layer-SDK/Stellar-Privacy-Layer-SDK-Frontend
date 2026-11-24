@@ -1,5 +1,5 @@
-import { logger } from './logger';
-import type { StorageProvider } from '../types';
+import { logger } from './logger.js';
+import type { StorageProvider } from '../types.js';
 
 const STORAGE_PREFIX = 'stellar-privacy:';
 

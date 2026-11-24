@@ -14,7 +14,7 @@ const mockUseSDK = vi.fn();
 
 vi.mock('../hooks/useSDK', () => ({
   useWallet: (...args: unknown[]) => mockUseWallet(...args),
-  useShieldedTransfer: (...args: unknown[]) => mockUseShieldedTransfer(...args),
+  usePool: (...args: unknown[]) => mockUseShieldedTransfer(...args),
   useSDK: (...args: unknown[]) => mockUseSDK(...args),
 }));
 
@@ -38,8 +38,7 @@ describe('Compliance', () => {
     });
     mockUseSDK.mockReturnValue({
       selectiveDisclosure: {
-        getDisclosurePayload: (txHash: string) => ({ transactionHash: txHash }),
-        discloseToRegulator: vi.fn().mockResolvedValue('0x' + 'd'.repeat(64)),
+        disclose: vi.fn().mockResolvedValue({ reference: '0x' + 'd'.repeat(64), payloads: [] }),
       },
     });
   });
@@ -81,7 +80,7 @@ describe('Compliance', () => {
     fireEvent.click(screen.getByText('Prepare Disclosure'));
 
     await waitFor(() => {
-      expect(mockUseSDK().selectiveDisclosure.discloseToRegulator).toHaveBeenCalled();
+      expect(mockUseSDK().selectiveDisclosure.disclose).toHaveBeenCalled();
     });
     expect(await screen.findByText('Disclosure Reference')).toBeDefined();
     expect(screen.getByText(/nothing is published on-chain/)).toBeDefined();

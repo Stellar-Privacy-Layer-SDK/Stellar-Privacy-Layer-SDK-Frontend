@@ -3,13 +3,13 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { TransactionHistory } from './History';
 
-const refreshPending = vi.fn();
+const refresh = vi.fn();
 const mockUseWallet = vi.fn();
 const mockUseShieldedTransfer = vi.fn();
 
 vi.mock('../hooks/useSDK', () => ({
   useWallet: (...args: unknown[]) => mockUseWallet(...args),
-  useShieldedTransfer: (...args: unknown[]) => mockUseShieldedTransfer(...args),
+  usePool: (...args: unknown[]) => mockUseShieldedTransfer(...args),
 }));
 
 const connected = {
@@ -28,8 +28,7 @@ describe('TransactionHistory', () => {
       isProcessing: false,
       error: null,
       deposit: vi.fn(),
-      refreshHistory: vi.fn(),
-      refreshPending,
+      refresh,
     });
   });
 
@@ -79,8 +78,7 @@ describe('TransactionHistory', () => {
       isProcessing: false,
       error: null,
       deposit: vi.fn(),
-      refreshHistory: vi.fn(),
-      refreshPending,
+      refresh,
     });
     render(
       <MemoryRouter>
@@ -95,7 +93,7 @@ describe('TransactionHistory', () => {
 
   it('polls while transactions are pending and stops on unmount', () => {
     vi.useFakeTimers();
-    refreshPending.mockClear();
+    refresh.mockClear();
     mockUseShieldedTransfer.mockReturnValue({
       transactions: [
         {
@@ -110,7 +108,7 @@ describe('TransactionHistory', () => {
           status: 'pending',
         },
       ],
-      refreshPending,
+      refresh,
     });
     const { unmount } = render(
       <MemoryRouter>
@@ -118,12 +116,12 @@ describe('TransactionHistory', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('Withdrawal')).toBeDefined();
-    expect(refreshPending).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(10_000);
-    expect(refreshPending).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenCalledTimes(2);
     unmount();
     vi.advanceTimersByTime(30_000);
-    expect(refreshPending).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
 });

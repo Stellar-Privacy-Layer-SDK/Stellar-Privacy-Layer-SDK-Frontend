@@ -10,7 +10,7 @@ const mockUseNetwork = vi.fn();
 
 vi.mock('../hooks/useSDK', () => ({
   useWallet: (...args: unknown[]) => mockUseWallet(...args),
-  useShieldedTransfer: (...args: unknown[]) => mockUseShieldedTransfer(...args),
+  usePool: (...args: unknown[]) => mockUseShieldedTransfer(...args),
   useViewingKeys: (...args: unknown[]) => mockUseViewingKeys(...args),
   useNetwork: (...args: unknown[]) => mockUseNetwork(...args),
 }));
@@ -26,7 +26,7 @@ describe('Dashboard', () => {
     });
     mockUseShieldedTransfer.mockReturnValue({
       transactions: [],
-      commitments: [],
+      notes: [],
       isProcessing: false,
       error: null,
       deposit: vi.fn(),
@@ -70,7 +70,7 @@ describe('Dashboard', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('Quick Actions')).toBeDefined();
-    expect(screen.getByText('New Shielded Transfer')).toBeDefined();
+    expect(screen.getByText('New Deposit')).toBeDefined();
     expect(screen.getByText('Manage Viewing Keys')).toBeDefined();
     expect(screen.getByText('Compliance Panel')).toBeDefined();
   });
@@ -89,7 +89,7 @@ describe('Dashboard', () => {
   it('shows live statistics', () => {
     mockUseShieldedTransfer.mockReturnValue({
       transactions: [{}, {}, {}, {}],
-      commitments: [{ token: 'XLM' }, { token: 'XLM' }],
+      notes: [{ status: 'available' }, { status: 'spent' }],
     });
     mockUseViewingKeys.mockReturnValue({
       keys: [{ active: true }, { active: true }, { active: false }, { active: true, expiresAt: 1 }],
@@ -103,6 +103,6 @@ describe('Dashboard', () => {
       screen.getByText(label).parentElement?.nextElementSibling?.textContent;
     expect(value('Total Shielded Transactions')).toBe('4');
     expect(value('Active Viewing Keys')).toBe('2');
-    expect(value('Assets Protected')).toBe('1');
+    expect(value('Unspent Notes')).toBe('1');
   });
 });
