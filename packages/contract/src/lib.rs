@@ -181,6 +181,9 @@ impl PrivacyVerifier {
 }
 
 #[cfg(test)]
+mod fixture;
+
+#[cfg(test)]
 mod test {
     extern crate std;
 
@@ -368,5 +371,42 @@ mod test {
         let valid = client.verify_proof(&valid_proof(&env), &inputs);
         // Arbitrary points do not satisfy the Groth16 pairing equation.
         assert!(!valid);
+    }
+
+    fn hex<const N: usize>(env: &Env, value: &str) -> BytesN<N> {
+        let mut bytes = [0u8; N];
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&value[i * 2..i * 2 + 2], 16).unwrap();
+        }
+        BytesN::from_array(env, &bytes)
+    }
+
+    #[test]
+    fn test_verify_proof_accepts_real_sdk_proof() {
+        let env = Env::default();
+        let client = deploy(&env);
+        client.set_vkey(&Groth16VKey {
+            alpha_g1: hex(&env, fixture::ALPHA),
+            beta_g2: hex(&env, fixture::BETA),
+            gamma_g2: hex(&env, fixture::GAMMA),
+            delta_g2: hex(&env, fixture::DELTA),
+            ic: vec![
+                &env,
+                hex(&env, fixture::IC0),
+                hex(&env, fixture::IC1),
+                hex(&env, fixture::IC2),
+            ],
+        });
+        let proof = Groth16Proof {
+            a: hex(&env, fixture::A),
+            b: hex(&env, fixture::B),
+            c: hex(&env, fixture::C),
+        };
+        let commitment: BytesN<32> = hex(&env, fixture::INPUT0);
+        let nullifier: BytesN<32> = hex(&env, fixture::INPUT1);
+
+        assert!(client.verify_proof(&proof, &vec![&env, commitment.clone(), nullifier.clone()]));
+        // Same proof, swapped public inputs.
+        assert!(!client.verify_proof(&proof, &vec![&env, nullifier, commitment]));
     }
 }
