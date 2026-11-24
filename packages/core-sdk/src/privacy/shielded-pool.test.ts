@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShieldedPool } from './shielded-pool.js';
 import { decodeNote } from './note.js';
 import { SnarkjsProver } from './snarkjs-prover.js';
+import type { WithdrawalRequest } from './relayer.js';
 import type { Prover } from './prover.js';
 import { NotSubmittedError, type StellarClient } from '../stellar/client.js';
 import { MerkleTree } from '../utils/merkle.js';
@@ -30,7 +31,7 @@ function fakeChain() {
   const client = {
     getNetworkConfig: vi.fn(() => ({ network: Network.TESTNET, contractId: CONTRACT })),
     getPoolInfo: vi.fn(async () => ({
-      token: 'CTOKEN', denomination: '1000000000', depositCount: leaves.length, root: await rootOf(leaves),
+      token: 'CTOKEN', decimals: 7, denomination: '1000000000', depositCount: leaves.length, root: await rootOf(leaves),
     })),
     getLeaves: vi.fn(async (start = 0) => leaves.slice(start)),
     isNullifierSpent: vi.fn(async (n: string) => spent.has(n)),
@@ -39,8 +40,8 @@ function fakeChain() {
       leaves.push(c);
       return `tx${counter++}`;
     }),
-    withdraw: vi.fn(async (_p: ZKProof, _root: string, n: string, _to: string) => {
-      spent.add(n);
+    withdraw: vi.fn(async (request: WithdrawalRequest) => {
+      spent.add(request.nullifier);
       return `tx${counter++}`;
     }),
   };
@@ -76,7 +77,7 @@ describe('ShieldedPool', () => {
 
     await pool.withdraw(note.commitment, recipient);
     expect(chain.client.withdraw).toHaveBeenCalledWith(
-      proof, expect.stringMatching(/^0x/), note.nullifier, recipient,
+      expect.objectContaining({ proof, nullifier: note.nullifier, recipient, relayer: recipient, fee: '0' }),
     );
     expect(pool.getNotes()[0].status).toBe('spending');
     await pool.refresh();
@@ -168,13 +169,43 @@ describe('ShieldedPool', () => {
     expect(merkleProof.root).toBe(await rootOf(chain.leaves));
   });
 
+  it('reuses the stored tree after a reload unless it is stale or corrupt', async () => {
+    const pool = await open();
+    await pool.deposit();
+    await pool.refresh();
+    chain.client.getLeaves.mockClear();
+    await (await open()).refresh();
+    expect(chain.client.getLeaves).not.toHaveBeenCalled();
+
+    await storage.set(`tree:${Network.TESTNET}:${CONTRACT}`, '[]');
+    await (await open()).refresh();
+    expect(chain.client.getLeaves).toHaveBeenCalledWith(0);
+  });
+
+  it('retries when a deposit lands between reads', async () => {
+    const pool = await open();
+    await pool.deposit();
+    chain.client.getLeaves.mockImplementationOnce(async (start = 0) => {
+      chain.leaves.push('0x9');
+      return chain.leaves.slice(start);
+    });
+    await pool.refresh();
+    expect(pool.getNotes()[0].status).toBe('available');
+  });
+
   it('withdraws through a relayer when configured', async () => {
-    const relayer = { withdraw: vi.fn(async () => 'relayed') };
+    const address = Keypair.random().publicKey();
+    const getInfo = vi.fn(async () => ({ address, fee: '5' }));
+    const relayer = { getInfo, withdraw: vi.fn(async () => 'relayed') };
     const pool = new ShieldedPool(chain.client as unknown as StellarClient, prover, storage, relayer);
     const { note } = await pool.deposit();
-    expect((await pool.withdraw(note.commitment, recipient)).txHash).toBe('relayed');
+    expect(await pool.quoteWithdrawal()).toEqual({ fee: '5', received: '999999995' });
+    await expect(pool.withdraw(note.commitment, recipient, '4')).rejects.toThrow('raised its fee');
+    getInfo.mockResolvedValueOnce({ address, fee: '1000000000' });
+    await expect(pool.quoteWithdrawal()).rejects.toThrow('too high');
+    expect((await pool.withdraw(note.commitment, recipient, '5')).txHash).toBe('relayed');
     expect(relayer.withdraw).toHaveBeenCalledWith(
-      expect.objectContaining({ proof, nullifier: note.nullifier, recipient }),
+      expect.objectContaining({ proof, recipient, relayer: address, fee: '5' }),
     );
     expect(chain.client.withdraw).not.toHaveBeenCalled();
   });

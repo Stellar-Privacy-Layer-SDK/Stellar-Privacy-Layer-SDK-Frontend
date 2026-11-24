@@ -90,6 +90,7 @@ export interface StorageProvider {
 
 export interface PoolInfo {
   token: string;
+  decimals: number;
   /** Amount of every deposit, in the token's smallest unit. */
   denomination: string;
   depositCount: number;

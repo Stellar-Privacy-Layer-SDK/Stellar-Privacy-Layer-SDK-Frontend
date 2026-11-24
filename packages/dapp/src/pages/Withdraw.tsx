@@ -1,14 +1,30 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowUpFromLine, Loader2, Shield } from 'lucide-react';
-import { isValidPublicKey, truncateAddress } from '@stellar-privacy/sdk';
+import { formatUnits, isValidPublicKey, truncateAddress } from '@stellar-privacy/sdk';
 import { useNavigate } from 'react-router';
-import { usePool, useWallet } from '../hooks/useSDK';
+import { usePool, useSDK, useWallet } from '../hooks/useSDK';
 import { toast } from '../components/ui/Toast';
 
 export function Withdraw() {
   const { walletInfo } = useWallet();
   const { notes, isProcessing, error, withdraw, importNote } = usePool();
   const spendable = notes.filter((n) => n.status === 'available' || n.status === 'unconfirmed');
+  const sdk = useSDK();
+  const connected = walletInfo?.isConnected ?? false;
+  const [quote, setQuote] = useState<{ fee: string; shown: string } | null>(null);
+  const [quoteError, setQuoteError] = useState('');
+
+  useEffect(() => {
+    if (!connected) return;
+    let active = true;
+    Promise.all([sdk.pool.quoteWithdrawal(), sdk.pool.getInfo()]).then(
+      ([{ fee }, { decimals }]) => active && setQuote({ fee, shown: formatUnits(fee, decimals) }),
+      (e: unknown) => active && setQuoteError(e instanceof Error ? e.message : String(e)),
+    );
+    return () => {
+      active = false;
+    };
+  }, [sdk, connected]);
   const [backup, setBackup] = useState('');
   const navigate = useNavigate();
   const [selected, setSelected] = useState('');
@@ -24,10 +40,10 @@ export function Withdraw() {
       newErrors.recipient = 'Enter a valid Stellar public key (G...)';
     }
     setErrors(newErrors);
-    if (!note || newErrors.recipient) return;
+    if (!note || newErrors.recipient || !quote) return;
 
     try {
-      await withdraw(note, recipient);
+      await withdraw(note, recipient, quote.fee);
       toast('success', 'Withdrawal submitted');
       navigate('/history');
     } catch (err) {
@@ -103,9 +119,11 @@ export function Withdraw() {
             {errors.recipient && <p className="text-xs text-red-400 mt-1">{errors.recipient}</p>}
           </div>
 
+          {quote && <p className="text-xs text-gray-400">Relayer fee: {quote.shown}</p>}
+          {quoteError && <p className="text-xs text-red-400">{quoteError}</p>}
           {error && <p className="text-xs text-red-400">{error}</p>}
 
-          <button type="submit" disabled={isProcessing} className="btn-primary w-full gap-2">
+          <button type="submit" disabled={isProcessing || !quote} className="btn-primary w-full gap-2">
             {isProcessing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (

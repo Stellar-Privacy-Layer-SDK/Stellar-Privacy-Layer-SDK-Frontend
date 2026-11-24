@@ -104,6 +104,16 @@ describe('useWallet', () => {
     expect(result.current.walletInfo?.isConnected).toBe(true);
   });
 
+  it('refuses a wallet on another network', async () => {
+    mocks.wallet.connect.mockResolvedValue({ publicKey, network: 'public', isConnected: true });
+    const { result } = renderHook(() => useWallet());
+    await act(async () => {
+      await expect(result.current.connect()).rejects.toThrow('switch it to testnet');
+    });
+    expect(result.current.walletInfo).toBeNull();
+    expect(mocks.client.connectWallet).not.toHaveBeenCalled();
+  });
+
   it('sees a wallet that was connected before mounting', () => {
     mocks.wallet.getWalletInfo.mockReturnValueOnce({ publicKey, isConnected: true });
     const { result } = renderHook(() => useWallet());
@@ -223,11 +233,11 @@ describe('usePool', () => {
     const { result } = renderHook(() => usePool());
     await act(async () => {
       await result.current.deposit();
-      await result.current.withdraw(note, publicKey);
+      await result.current.withdraw(note, publicKey, '5');
       await result.current.importNote('backup');
     });
     expect(mocks.pool.deposit).toHaveBeenCalled();
-    expect(mocks.pool.withdraw).toHaveBeenCalledWith('0x1', publicKey);
+    expect(mocks.pool.withdraw).toHaveBeenCalledWith('0x1', publicKey, '5');
     expect(mocks.pool.importNote).toHaveBeenCalledWith('backup');
   });
 
