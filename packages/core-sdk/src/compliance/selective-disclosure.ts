@@ -159,7 +159,7 @@ export class SelectiveDisclosure extends EventEmitter {
   private findViewingKeyForRegulator(regulatorPublicKey: string): string | undefined {
     const keys = this.viewingKeyManager.getActiveViewingKeys();
     const regulatorKey = keys.find(
-      (k) => k.grantedBy === regulatorPublicKey && k.active,
+      (k) => k.grantedBy === regulatorPublicKey && this.viewingKeyManager.getPrivateKey(k.id) !== undefined,
     );
     return regulatorKey?.id;
   }

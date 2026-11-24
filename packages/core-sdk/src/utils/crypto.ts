@@ -273,6 +273,24 @@ export function ed25519SeedToX25519(seed: Uint8Array): string {
   return bytesToHex(ed25519.utils.toMontgomerySecret(seed));
 }
 
+/** Signs text with an Ed25519 seed (hex); returns the public key and signature. */
+export function signText(text: string, seed: string): { publicKey: string; signature: string } {
+  const secret = hexToBytes(seed);
+  return {
+    publicKey: bytesToHex(ed25519.getPublicKey(secret)),
+    signature: bytesToHex(ed25519.sign(new TextEncoder().encode(text), secret)),
+  };
+}
+
+/** Verifies a signature made by {@link signText}. */
+export function verifyText(text: string, signature: string, publicKey: string): boolean {
+  try {
+    return ed25519.verify(hexToBytes(signature), new TextEncoder().encode(text), hexToBytes(publicKey));
+  } catch {
+    return false;
+  }
+}
+
 export async function generateViewingKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
   const privateKey = x25519.utils.randomSecretKey();
   const publicKey = x25519.getPublicKey(privateKey);

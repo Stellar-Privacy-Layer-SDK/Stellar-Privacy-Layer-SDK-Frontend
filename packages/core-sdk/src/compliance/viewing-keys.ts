@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { StrKey } from '@stellar/stellar-sdk';
 import { ViewingKey, DisclosurePayload } from '../types';
-import { generateViewingKeyPair, sealToPublicKey, ed25519PublicKeyToX25519, poseidonHash } from '../utils/crypto';
+import { generateViewingKeyPair, sealToPublicKey, ed25519PublicKeyToX25519, poseidonHash, signText, verifyText } from '../utils/crypto';
 import { isValidPublicKey } from '../utils/encoding';
 import { createLocalStorageProvider } from '../utils/storage';
 import type { StorageProvider } from '../types';
@@ -134,22 +134,30 @@ export class ViewingKeyManager extends EventEmitter {
     return this.keyPairs.get(keyId)?.privateKey;
   }
 
+  /**
+   * Signs a payload with a viewing key. Verifiers must check that
+   * `signerPublicKey` is the Ed25519 key they expect.
+   */
   async signDisclosurePayload(payload: DisclosurePayload, keyId: string): Promise<DisclosurePayload> {
-    const viewingKey = this.viewingKeys.get(keyId);
-    if (!viewingKey) throw new Error('Viewing key not found');
+    if (!this.viewingKeys.has(keyId)) throw new Error('Viewing key not found');
+    const privateKey = this.getPrivateKey(keyId);
+    if (!privateKey) throw new Error('Private viewing key is not available in this session');
 
-    const payloadWithSigner = { ...payload, signerPublicKey: viewingKey.publicKey, regulatorSignature: undefined };
-    const payloadString = JSON.stringify(payloadWithSigner, Object.keys(payloadWithSigner).sort());
-    const signature = await poseidonHash([payloadString, viewingKey.publicKey]);
-
-    return { ...payloadWithSigner, regulatorSignature: signature };
+    const { publicKey, signature } = signText(canonicalPayload(payload), privateKey);
+    return { ...payload, signerPublicKey: publicKey, regulatorSignature: signature };
   }
 
   async verifyDisclosurePayload(payload: DisclosurePayload): Promise<boolean> {
     if (!payload.regulatorSignature || !payload.signerPublicKey) return false;
-    const canonical = { ...payload, regulatorSignature: undefined };
-    const payloadString = JSON.stringify(canonical, Object.keys(canonical).sort());
-    const expectedSignature = await poseidonHash([payloadString, payload.signerPublicKey]);
-    return payload.regulatorSignature === expectedSignature;
+    return verifyText(canonicalPayload(payload), payload.regulatorSignature, payload.signerPublicKey);
   }
+}
+
+/** Every signed field, in a fixed order. */
+function canonicalPayload(p: DisclosurePayload): string {
+  return JSON.stringify([
+    p.transactionHash, p.commitmentHash, p.amount ?? null, p.recipient ?? null,
+    p.sender ?? null, p.scope, p.timestamp,
+    p.proof.pi_a, p.proof.pi_b, p.proof.pi_c, p.proof.protocol, p.proof.curve,
+  ]);
 }

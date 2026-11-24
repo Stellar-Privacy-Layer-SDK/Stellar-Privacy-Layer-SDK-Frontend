@@ -109,9 +109,27 @@ describe('ViewingKeyManager', () => {
     it('signs a payload and verifies it', async () => {
       const key = await vk.createViewingKey('Audit Key', 'full');
       const signed = await vk.signDisclosurePayload(basePayload(), key.id);
-      expect(signed.signerPublicKey).toBe(key.publicKey);
+      expect(signed.signerPublicKey).toMatch(/^[0-9a-f]{64}$/);
       expect(signed.regulatorSignature).toBeTruthy();
       expect(await vk.verifyDisclosurePayload(signed)).toBe(true);
+    });
+
+    it('detects tampering, including inside the proof', async () => {
+      const key = await vk.createViewingKey('Tamper', 'full');
+      const signed = await vk.signDisclosurePayload(basePayload(), key.id);
+      expect(await vk.verifyDisclosurePayload({ ...signed, amount: '9' })).toBe(false);
+      expect(
+        await vk.verifyDisclosurePayload({
+          ...signed,
+          proof: { ...signed.proof, pi_a: ['0x9', '0x9'] },
+        }),
+      ).toBe(false);
+    });
+
+    it('cannot sign with a key whose private part is gone', async () => {
+      const key = await vk.createViewingKey('Revoked', 'full');
+      await vk.revokeViewingKey(key.id);
+      await expect(vk.signDisclosurePayload(basePayload(), key.id)).rejects.toThrow('not available');
     });
 
     it('rejects unsigned payloads', async () => {
