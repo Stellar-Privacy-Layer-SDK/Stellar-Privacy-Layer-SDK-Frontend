@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router';
 import {
   Shield,
   Send,
+  ArrowUpFromLine,
   Key,
   FileSearch,
   History,
@@ -15,6 +16,7 @@ import { NetworkSwitcher } from './NetworkSwitcher';
 const navItems = [
   { to: '/', icon: Shield, label: 'Dashboard', end: true },
   { to: '/shielded-transfer', icon: Send, label: 'Shielded Transfer' },
+  { to: '/withdraw', icon: ArrowUpFromLine, label: 'Withdraw' },
   { to: '/compliance', icon: Key, label: 'Compliance' },
   { to: '/viewing-keys', icon: FileSearch, label: 'Viewing Keys' },
   { to: '/history', icon: History, label: 'History' },
