@@ -104,6 +104,16 @@ describe('useWallet', () => {
     expect(result.current.walletInfo?.isConnected).toBe(true);
   });
 
+  it('refuses a wallet on another network', async () => {
+    mocks.wallet.connect.mockResolvedValue({ publicKey, network: 'public', isConnected: true });
+    const { result } = renderHook(() => useWallet());
+    await act(async () => {
+      await expect(result.current.connect()).rejects.toThrow('switch it to testnet');
+    });
+    expect(result.current.walletInfo).toBeNull();
+    expect(mocks.client.connectWallet).not.toHaveBeenCalled();
+  });
+
   it('sees a wallet that was connected before mounting', () => {
     mocks.wallet.getWalletInfo.mockReturnValueOnce({ publicKey, isConnected: true });
     const { result } = renderHook(() => useWallet());

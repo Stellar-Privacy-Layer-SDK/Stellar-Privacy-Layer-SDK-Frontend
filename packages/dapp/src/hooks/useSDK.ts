@@ -86,8 +86,12 @@ export function useWallet() {
     setError(null);
     try {
       const info = await sdk.wallet.connect();
-      // Keep the RPC client in sync so on-chain operations work.
-      await sdk.client.connectWallet(info.publicKey, info.network);
+      const { network } = sdk.client.getNetworkConfig();
+      if (info.network !== network) {
+        sdk.wallet.disconnect();
+        throw new Error(`Wallet is on ${info.network}; switch it to ${network}`);
+      }
+      await sdk.client.connectWallet(info.publicKey, network);
       setWalletInfo(info);
       return info;
     } catch (e) {
@@ -107,8 +111,7 @@ export function useWallet() {
 
   useEffect(() => {
     const handleConnect = (info: WalletInfo) => {
-      setWalletInfo(info);
-      void sdk.client.connectWallet(info.publicKey, info.network);
+      if (info.network === sdk.client.getNetworkConfig().network) setWalletInfo(info);
     };
     const handleDisconnect = () => {
       setWalletInfo(null);
