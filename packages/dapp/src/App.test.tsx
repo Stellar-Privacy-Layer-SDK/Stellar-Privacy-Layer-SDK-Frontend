@@ -13,13 +13,13 @@ vi.mock('./hooks/useSDK', () => ({
     connect: vi.fn(),
     disconnect: vi.fn(),
   }),
-  useShieldedTransfer: () => ({
+  usePool: () => ({
     transactions: [],
-    commitments: [],
+    notes: [],
     isProcessing: false,
     error: null,
     deposit: vi.fn(),
-    refreshHistory: vi.fn(),
+    refresh: vi.fn(),
   }),
   useViewingKeys: () => ({
     keys: [],
@@ -46,8 +46,8 @@ describe('App routing', () => {
     expect(screen.getByText('Welcome to Stellar Privacy Layer')).toBeDefined();
   });
 
-  it('renders the shielded transfer page', () => {
-    renderAt('/shielded-transfer');
+  it('renders the deposit page', () => {
+    renderAt('/deposit');
     expect(screen.getByText('Connect Your Wallet')).toBeDefined();
   });
 

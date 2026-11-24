@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { Shield, Send, Key, FileSearch, ArrowRight, Lock, Eye, Coins } from 'lucide-react';
-import { useShieldedTransfer, useViewingKeys, useWallet } from '../hooks/useSDK';
+import { usePool, useViewingKeys, useWallet } from '../hooks/useSDK';
 import { useNavigate } from 'react-router';
 
 const quickActions = [
   {
-    title: 'New Shielded Transfer',
-    description: 'Send assets privately with ZK proofs',
+    title: 'New Deposit',
+    description: 'Move assets into the shielded pool',
     icon: Send,
-    path: '/shielded-transfer',
+    path: '/deposit',
     color: 'from-privacy-500 to-emerald-600',
   },
   {
@@ -30,14 +30,14 @@ const quickActions = [
 export function Dashboard() {
   const [now] = useState(() => Date.now());
   const { walletInfo } = useWallet();
-  const { transactions, commitments } = useShieldedTransfer();
+  const { transactions, notes } = usePool();
   const { keys } = useViewingKeys();
   const navigate = useNavigate();
   const activeKeys = keys.filter((k) => k.active && !(k.expiresAt && k.expiresAt < now));
   const stats = [
     { label: 'Total Shielded Transactions', value: transactions.length, icon: Lock, color: 'text-privacy-400' },
     { label: 'Active Viewing Keys', value: activeKeys.length, icon: Eye, color: 'text-stellar-400' },
-    { label: 'Assets Protected', value: new Set(commitments.map((c) => c.token)).size, icon: Coins, color: 'text-yellow-400' },
+    { label: 'Unspent Notes', value: notes.filter((n) => n.status !== 'spent').length, icon: Coins, color: 'text-yellow-400' },
   ];
 
   return (

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FileSearch, Shield, CheckCircle, AlertTriangle } from 'lucide-react';
-import { useWallet, useShieldedTransfer, useSDK } from '../hooks/useSDK';
+import { useWallet, usePool, useSDK } from '../hooks/useSDK';
 import { toast } from '../components/ui/Toast';
 import { isValidPublicKey } from '@stellar-privacy/sdk';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -9,7 +9,7 @@ type DisclosureScope = 'full' | 'amount-only' | 'recipient-only';
 
 export function Compliance() {
   const { walletInfo } = useWallet();
-  const { transactions } = useShieldedTransfer();
+  const { transactions } = usePool();
   const sdk = useSDK();
 
   const [regulatorKey, setRegulatorKey] = useState('');
@@ -36,16 +36,13 @@ export function Compliance() {
 
     setIsDisclosing(true);
     try {
-      const hash = await sdk.selectiveDisclosure.discloseToRegulator(
+      const { reference, payloads } = await sdk.selectiveDisclosure.disclose(
         transactions,
         regulatorKey,
         scope,
       );
-      const payloads = transactions.map((tx) =>
-        sdk.selectiveDisclosure.getDisclosurePayload(tx.txHash),
-      );
       setDisclosureJson(JSON.stringify(payloads, null, 2));
-      setDisclosureResult(hash);
+      setDisclosureResult(reference);
       toast('success', 'Disclosure prepared', 'Copy the payload and send it to the regulator privately.');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Disclosure failed';

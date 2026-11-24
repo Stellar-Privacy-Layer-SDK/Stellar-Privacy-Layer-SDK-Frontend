@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { History as HistoryIcon, Shield, Send, CheckCircle, Clock, XCircle } from 'lucide-react';
-import { useWallet, useShieldedTransfer } from '../hooks/useSDK';
+import { useWallet, usePool } from '../hooks/useSDK';
 import { CopyButton } from '../components/ui/CopyButton';
 import { truncateAddress } from '@stellar-privacy/sdk';
 import { useNavigate } from 'react-router';
@@ -15,16 +15,16 @@ const POLL_INTERVAL_MS = 10_000;
 
 export function TransactionHistory() {
   const { walletInfo } = useWallet();
-  const { transactions, refreshPending } = useShieldedTransfer();
+  const { transactions, refresh } = usePool();
   const navigate = useNavigate();
   const hasPending = transactions.some((tx) => tx.status === 'pending');
 
   useEffect(() => {
     if (!walletInfo?.isConnected || !hasPending) return;
-    void refreshPending();
-    const timer = setInterval(() => void refreshPending(), POLL_INTERVAL_MS);
+    void refresh();
+    const timer = setInterval(() => void refresh(), POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [walletInfo?.isConnected, hasPending, refreshPending]);
+  }, [walletInfo?.isConnected, hasPending, refresh]);
 
   if (!walletInfo?.isConnected) {
     return (
@@ -45,9 +45,9 @@ export function TransactionHistory() {
             Your shielded transaction records
           </p>
         </div>
-        <button onClick={() => navigate('/shielded-transfer')} className="btn-primary text-xs gap-1.5">
+        <button onClick={() => navigate('/deposit')} className="btn-primary text-xs gap-1.5">
           <Send className="h-3.5 w-3.5" />
-          New Transfer
+          New Deposit
         </button>
       </div>
 
@@ -75,7 +75,7 @@ export function TransactionHistory() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-white">
-                          {tx.amount} {tx.token}
+                          {tx.amount} {truncateAddress(tx.token)}
                         </span>
                         <span className={`badge ${status.bg} ${status.color} text-[10px]`}>
                           {status.label}
@@ -87,6 +87,7 @@ export function TransactionHistory() {
                         )}
                       </div>
 
+                      {tx.recipient && (
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] text-gray-500">To:</span>
@@ -96,6 +97,7 @@ export function TransactionHistory() {
                           <CopyButton text={tx.recipient} />
                         </div>
                       </div>
+                      )}
 
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
                         <div className="flex items-center gap-1.5">

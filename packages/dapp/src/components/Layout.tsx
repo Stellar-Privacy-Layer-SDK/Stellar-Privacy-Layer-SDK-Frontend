@@ -15,7 +15,7 @@ import { NetworkSwitcher } from './NetworkSwitcher';
 
 const navItems = [
   { to: '/', icon: Shield, label: 'Dashboard', end: true },
-  { to: '/shielded-transfer', icon: Send, label: 'Shielded Transfer' },
+  { to: '/deposit', icon: Send, label: 'Deposit' },
   { to: '/withdraw', icon: ArrowUpFromLine, label: 'Withdraw' },
   { to: '/compliance', icon: Key, label: 'Compliance' },
   { to: '/viewing-keys', icon: FileSearch, label: 'Viewing Keys' },
