@@ -37,7 +37,8 @@
     "build:contract": "cd packages/contract && cargo build --release --target wasm32v1-none",
     "test:e2e": "node e2e/sdk.mjs",
     "deploy:pool": "node scripts/deploy-pool.mjs",
-    "test:browser": "node e2e/browser.mjs"
+    "test:browser": "node e2e/browser.mjs",
+    "build:fixture": "node scripts/build-fixture.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
