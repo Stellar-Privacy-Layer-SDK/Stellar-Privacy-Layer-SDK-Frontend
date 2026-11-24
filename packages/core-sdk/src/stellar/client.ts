@@ -9,8 +9,9 @@ import {
 } from '@stellar/stellar-sdk';
 import { signTransaction } from '@stellar/freighter-api';
 import { EventEmitter } from 'events';
-import { Network, NetworkConfig, WalletInfo, SDKConfig } from '../types';
+import { Network, NetworkConfig, WalletInfo, SDKConfig, ZKProof } from '../types';
 import { NETWORK_CONFIGS, PRIVACY_CONTRACT_METHODS } from './config';
+import { encodeGroth16Proof, fieldBytes } from './abi';
 import { logger } from '../utils/logger';
 
 /**
@@ -226,6 +227,11 @@ export class StellarClient extends EventEmitter {
     }
   }
 
+  /** Encodes a field element as the contract's `BytesN<32>`. */
+  private field(value: string): xdr.ScVal {
+    return nativeToScVal(fieldBytes(value), { type: 'bytes' });
+  }
+
   async depositCommitment(
     commitmentHash: string,
     amount: string,
@@ -233,7 +239,7 @@ export class StellarClient extends EventEmitter {
   ): Promise<string> {
     return this.sendTransaction(
       PRIVACY_CONTRACT_METHODS.DEPOSIT,
-      nativeToScVal(commitmentHash, { type: 'string' }),
+      this.field(commitmentHash),
       nativeToScVal(amount, { type: 'string' }),
       nativeToScVal(token, { type: 'string' }),
     );
@@ -247,18 +253,20 @@ export class StellarClient extends EventEmitter {
   ): Promise<string> {
     return this.sendTransaction(
       PRIVACY_CONTRACT_METHODS.WITHDRAW,
-      nativeToScVal(nullifier, { type: 'string' }),
-      nativeToScVal(merkleProof),
+      this.field(nullifier),
+      xdr.ScVal.scvVec(merkleProof.map((step) => this.field(step))),
       nativeToScVal(recipient, { type: 'string' }),
       nativeToScVal(proof, { type: 'string' }),
     );
   }
 
-  async verifyProof(proof: string, publicInputs: string[]): Promise<boolean> {
+  async verifyProof(proof: ZKProof, publicInputs: string[]): Promise<boolean> {
     const result = await this.callContract(
       PRIVACY_CONTRACT_METHODS.VERIFY_PROOF,
-      nativeToScVal(proof, { type: 'string' }),
-      nativeToScVal(publicInputs),
+      nativeToScVal(encodeGroth16Proof(proof), {
+        type: { a: ['symbol', 'bytes'], b: ['symbol', 'bytes'], c: ['symbol', 'bytes'] },
+      }),
+      xdr.ScVal.scvVec(publicInputs.map((input) => this.field(input))),
     );
     return scValToNative(result) as boolean;
   }

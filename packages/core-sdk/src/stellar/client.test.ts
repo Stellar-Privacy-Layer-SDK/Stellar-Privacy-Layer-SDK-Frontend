@@ -197,7 +197,16 @@ describe('StellarClient', () => {
   it('verifies proof via contract call', async () => {
     client.connectWallet('GA' + 'X'.repeat(54));
     client.setContractId(validContractId);
-    const result = await client.verifyProof(JSON.stringify({ pi_a: ['1', '2'] }), ['input1']);
+    const result = await client.verifyProof(
+      {
+        pi_a: ['1', '2'],
+        pi_b: [['3', '4'], ['5', '6']],
+        pi_c: ['7', '8'],
+        protocol: 'groth16',
+        curve: 'bn128',
+      },
+      ['1'],
+    );
     expect(result).toBe(true);
   });
 

@@ -19,7 +19,7 @@ export class ProofVerifier extends EventEmitter {
     if (!localVerification) return false;
     try {
       const onChainVerification = await this.client.verifyProof(
-        JSON.stringify(proof),
+        proof,
         publicInputs,
       );
       return onChainVerification;
