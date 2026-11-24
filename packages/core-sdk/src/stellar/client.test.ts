@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { StrKey } from '@stellar/stellar-sdk';
 import { StellarClient } from './client';
+import { NETWORK_CONFIGS } from './config';
 import { Network } from '../types';
 
 const validContractId = StrKey.encodeContract(Buffer.alloc(32, 0x01));
@@ -115,6 +116,32 @@ describe('StellarClient', () => {
     client.switchNetwork(Network.PUBLIC);
     expect(client.getNetworkConfig().network).toBe(Network.PUBLIC);
     client.switchNetwork(Network.TESTNET);
+  });
+
+  it('keeps custom endpoints and contract across wallet connect and network switches', async () => {
+    const c = new StellarClient({
+      network: {
+        ...NETWORK_CONFIGS[Network.TESTNET],
+        rpcUrl: 'https://rpc.example.com',
+        contractId: validContractId,
+      },
+    });
+    await c.connectWallet('GA' + 'X'.repeat(54), Network.TESTNET);
+    expect(c.getNetworkConfig().rpcUrl).toBe('https://rpc.example.com');
+    c.switchNetwork(Network.PUBLIC);
+    expect(c.getNetworkConfig().contractId).toBe('');
+    c.switchNetwork(Network.TESTNET);
+    expect(c.getNetworkConfig().contractId).toBe(validContractId);
+  });
+
+  it('does not reuse a contract from another network', async () => {
+    const c = new StellarClient();
+    c.setContractId(validContractId);
+    await c.connectWallet('GA' + 'X'.repeat(54), Network.PUBLIC);
+    await expect(c.depositCommitment('0x' + 'a'.repeat(64), '1', 'USDC')).rejects.toThrow(
+      'Contract not set',
+    );
+    expect(NETWORK_CONFIGS[Network.TESTNET].contractId).toBe('');
   });
 
   it('clears wallet on disconnect', () => {

@@ -24,10 +24,13 @@ export class StellarClient extends EventEmitter {
   private contract: Contract | null = null;
   private config: SDKConfig;
   private walletInfo: WalletInfo | null = null;
+  private networkConfigs = new Map<Network, NetworkConfig>();
 
   constructor(config: Partial<SDKConfig> = {}) {
     super();
-    const networkConfig = config.network || NETWORK_CONFIGS[Network.TESTNET];
+    // Copied so setContractId() never mutates the shared NETWORK_CONFIGS.
+    const networkConfig = { ...(config.network ?? NETWORK_CONFIGS[Network.TESTNET]) };
+    this.networkConfigs.set(networkConfig.network, networkConfig);
     this.config = {
       network: networkConfig,
       storageProvider: config.storageProvider,
@@ -72,11 +75,15 @@ export class StellarClient extends EventEmitter {
   }
 
   private setNetwork(network: Network): void {
-    this.config.network = NETWORK_CONFIGS[network];
+    // Custom endpoints and contract IDs belong to the network they were
+    // configured for; keep them when (re)selecting that same network.
+    if (network === this.config.network.network) return;
+    this.config.network = { ...(this.networkConfigs.get(network) ?? NETWORK_CONFIGS[network]) };
+    this.networkConfigs.set(network, this.config.network);
     this.rpc = new rpc.Server(this.config.network.rpcUrl);
-    if (this.config.network.contractId) {
-      this.contract = new Contract(this.config.network.contractId);
-    }
+    this.contract = this.config.network.contractId
+      ? new Contract(this.config.network.contractId)
+      : null;
   }
 
   disconnectWallet(): void {
