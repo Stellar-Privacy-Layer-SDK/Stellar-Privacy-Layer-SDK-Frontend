@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { ShieldedTransfer } from './shielded-transfer';
 import { StellarClient } from '../stellar/client';
+import { NETWORK_CONFIGS } from '../stellar/config';
+import { Network } from '../types';
 import { createMemoryStorageProvider } from '../utils/storage';
 
 const KEY = () => Keypair.random().publicKey();
@@ -42,7 +44,9 @@ describe('ShieldedTransfer', () => {
     client = new StellarClient();
     client.connectWallet('GA' + 'X'.repeat(54));
     client.setContractId(validContractId);
-    transfer = new ShieldedTransfer(client, createMemoryStorageProvider());
+    transfer = new ShieldedTransfer(client, createMemoryStorageProvider(), undefined, {
+      simulateOnFailure: true,
+    });
     await transfer.initialize();
   });
 
@@ -98,14 +102,37 @@ describe('ShieldedTransfer', () => {
 
   it('restores state from storage', async () => {
     const storage = createMemoryStorageProvider();
-    const t1 = new ShieldedTransfer(client, storage);
+    const t1 = new ShieldedTransfer(client, storage, undefined, { simulateOnFailure: true });
     await t1.initialize();
     await t1.deposit({ amount: '42', token: 'USDC', recipient: KEY() });
 
-    const t2 = new ShieldedTransfer(client, storage);
+    const t2 = new ShieldedTransfer(client, storage, undefined, { simulateOnFailure: true });
     await t2.initialize();
     const history = await t2.getTransactionHistory();
     expect(history.some((tx) => tx.amount === '42')).toBe(true);
+  });
+
+  it('fails the deposit when it cannot be submitted', async () => {
+    const strict = new ShieldedTransfer(client, createMemoryStorageProvider());
+    await strict.initialize();
+    const failed = vi.fn();
+    strict.on('onTransferFailed', failed);
+    await expect(
+      strict.deposit({ amount: '1', token: 'USDC', recipient: KEY() }),
+    ).rejects.toThrow();
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(await strict.getTransactionHistory()).toEqual([]);
+  });
+
+  it('refuses the simulated prover on the public network', async () => {
+    const mainnet = new StellarClient({ network: NETWORK_CONFIGS[Network.PUBLIC] });
+    const t = new ShieldedTransfer(mainnet, createMemoryStorageProvider(), undefined, {
+      simulateOnFailure: true,
+    });
+    await expect(t.deposit({ amount: '1', token: 'USDC', recipient: KEY() })).rejects.toThrow(
+      'simulated prover is insecure',
+    );
+    await expect(t.withdraw('0x1', KEY(), '1')).rejects.toThrow('simulated prover is insecure');
   });
 
   describe('input validation', () => {
@@ -151,8 +178,17 @@ describe('ShieldedTransfer', () => {
         '150',
       );
       expect(result.txHash).toBeTruthy();
-      expect(result.nullifier).toMatch(/^0x[0-9a-f]{64}$/);
+      expect(result.nullifier).toBe(deposit.nullifier);
+      const history = await transfer.getTransactionHistory();
+      expect(history.find((tx) => tx.txHash === result.txHash)?.type).toBe('withdrawal');
       expect(await transfer.getCommitment(deposit.commitmentHash)).toBeUndefined();
+    });
+
+    it('rejects amounts that differ from the deposit', async () => {
+      const deposit = await transfer.deposit({ amount: '20', token: 'USDC', recipient: KEY() });
+      await expect(transfer.withdraw(deposit.commitmentHash, KEY(), '2000')).rejects.toThrow(
+        'must equal the deposited amount',
+      );
     });
 
     it('rejects invalid withdraw recipients', async () => {
@@ -189,6 +225,36 @@ describe('ShieldedTransfer', () => {
       expect(capturedProof.length).toBeGreaterThan(0);
       expect(capturedProof[0]).toMatch(/^0x[0-9a-f]{64}$/);
     });
+  });
+
+  it('updates and persists pending transaction statuses', async () => {
+    const storage = createMemoryStorageProvider();
+    const t = new ShieldedTransfer(client, storage);
+    await t.initialize();
+    const submit = vi.spyOn(client, 'depositCommitment');
+    const status = vi.spyOn(client, 'getTransactionStatus');
+    try {
+      for (const hash of ['ok', 'bad', 'unknown']) {
+        submit.mockResolvedValueOnce(hash);
+        await t.deposit({ amount: '1', token: 'USDC', recipient: KEY() });
+      }
+      status.mockImplementation(
+        async (hash) => ({ ok: 'SUCCESS', bad: 'FAILED' })[hash] ?? 'NOT_FOUND',
+      );
+      expect(await t.refreshPendingTransactions()).toBe(true);
+      expect(await t.refreshPendingTransactions()).toBe(false);
+
+      const reloaded = new ShieldedTransfer(client, storage);
+      await reloaded.initialize();
+      const byHash = Object.fromEntries(
+        (await reloaded.getTransactionHistory()).map((tx) => [tx.txHash, tx.status]),
+      );
+      expect(byHash).toEqual({ ok: 'confirmed', bad: 'failed', unknown: 'pending' });
+      expect(await reloaded.getCommitments()).toHaveLength(3);
+    } finally {
+      submit.mockRestore();
+      status.mockRestore();
+    }
   });
 
   it('returns the transaction status from the client', async () => {

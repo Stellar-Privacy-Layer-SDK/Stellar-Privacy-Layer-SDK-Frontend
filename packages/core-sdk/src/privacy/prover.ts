@@ -8,6 +8,8 @@ export interface ProverArtifacts {
 }
 
 export interface Prover {
+  /** True for provers whose proofs carry no security. Refused on mainnet. */
+  readonly simulated?: boolean;
   initialize(): Promise<void>;
   isReady(): boolean;
   generateShieldedProof(params: ShieldedTransferParams, secret: string): Promise<{
@@ -31,6 +33,3 @@ export interface Prover {
   ): Promise<ZKProof>;
   verifyProof(proof: ZKProof, publicInputs: string[]): Promise<boolean>;
 }
-
-export { SnarkjsProver } from './snarkjs-prover';
-export { SimulatedProver } from './simulated-prover';

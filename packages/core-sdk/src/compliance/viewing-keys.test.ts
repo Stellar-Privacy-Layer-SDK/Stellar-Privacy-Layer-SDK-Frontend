@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { Keypair } from '@stellar/stellar-sdk';
+import { openSealed, ed25519SeedToX25519 } from '../utils/crypto';
 import { ViewingKeyManager } from './viewing-keys';
 import { createMemoryStorageProvider } from '../utils/storage';
 
@@ -31,10 +33,18 @@ describe('ViewingKeyManager', () => {
 
   describe('grantViewingKey', () => {
     it('grants a key to a recipient', async () => {
-      const key = await vk.grantViewingKey('GA' + 'X'.repeat(54), 'full');
-      expect(key.grantedBy).toBe('GA' + 'X'.repeat(54));
+      const recipient = Keypair.random();
+      const key = await vk.grantViewingKey(recipient.publicKey(), 'full');
+      expect(key.grantedBy).toBe(recipient.publicKey());
+      expect(
+        await openSealed(key.encryptedPrivateKey, ed25519SeedToX25519(recipient.rawSecretKey())),
+      ).toBe(vk.getPrivateKey(key.id));
       expect(key.active).toBe(true);
     });
+  });
+
+  it('rejects granting to an invalid key', async () => {
+    await expect(vk.grantViewingKey('nope')).rejects.toThrow('Invalid recipient');
   });
 
   describe('getViewingKey / getAllViewingKeys', () => {
@@ -81,37 +91,6 @@ describe('ViewingKeyManager', () => {
     });
   });
 
-  describe('createDisclosureRequest', () => {
-    it('creates a full-scope payload', async () => {
-      const payload = await vk.createDisclosureRequest({
-        regulatorPublicKey: 'GA' + 'X'.repeat(54),
-        scope: 'full',
-        reason: 'Audit',
-      });
-      expect(payload.scope).toBe('full');
-      expect(payload.timestamp).toBeGreaterThan(0);
-      expect(payload.proof.protocol).toBe('groth16');
-    });
-
-    it('omits fields based on scope', async () => {
-      const amountOnly = await vk.createDisclosureRequest({
-        regulatorPublicKey: 'GA' + 'X'.repeat(54),
-        scope: 'amount-only',
-        reason: 'x',
-      });
-      expect(amountOnly.amount).toBeDefined();
-      expect(amountOnly.recipient).toBeUndefined();
-
-      const recipientOnly = await vk.createDisclosureRequest({
-        regulatorPublicKey: 'GA' + 'X'.repeat(54),
-        scope: 'recipient-only',
-        reason: 'x',
-      });
-      expect(recipientOnly.amount).toBeUndefined();
-      expect(recipientOnly.recipient).toBeDefined();
-    });
-  });
-
   describe('signDisclosurePayload / verifyDisclosurePayload', () => {
     const basePayload = () => ({
       transactionHash: 'tx1',
@@ -130,9 +109,27 @@ describe('ViewingKeyManager', () => {
     it('signs a payload and verifies it', async () => {
       const key = await vk.createViewingKey('Audit Key', 'full');
       const signed = await vk.signDisclosurePayload(basePayload(), key.id);
-      expect(signed.signerPublicKey).toBe(key.publicKey);
+      expect(signed.signerPublicKey).toMatch(/^[0-9a-f]{64}$/);
       expect(signed.regulatorSignature).toBeTruthy();
       expect(await vk.verifyDisclosurePayload(signed)).toBe(true);
+    });
+
+    it('detects tampering, including inside the proof', async () => {
+      const key = await vk.createViewingKey('Tamper', 'full');
+      const signed = await vk.signDisclosurePayload(basePayload(), key.id);
+      expect(await vk.verifyDisclosurePayload({ ...signed, amount: '9' })).toBe(false);
+      expect(
+        await vk.verifyDisclosurePayload({
+          ...signed,
+          proof: { ...signed.proof, pi_a: ['0x9', '0x9'] },
+        }),
+      ).toBe(false);
+    });
+
+    it('cannot sign with a key whose private part is gone', async () => {
+      const key = await vk.createViewingKey('Revoked', 'full');
+      await vk.revokeViewingKey(key.id);
+      await expect(vk.signDisclosurePayload(basePayload(), key.id)).rejects.toThrow('not available');
     });
 
     it('rejects unsigned payloads', async () => {

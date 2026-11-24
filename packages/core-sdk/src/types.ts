@@ -53,24 +53,13 @@ export interface ZKProof {
   curve: string;
 }
 
-export interface MerkleNode {
-  left?: string;
-  right?: string;
-  hash: string;
-}
-
 export interface Commitment {
   hash: string;
+  nullifier: string;
   amount: string;
   token: string;
   recipient: string;
   timestamp: number;
-  blockNumber?: number;
-}
-
-export interface Nullifier {
-  value: string;
-  spent: boolean;
   blockNumber?: number;
 }
 
@@ -107,6 +96,8 @@ export interface DisclosurePayload {
 }
 
 export interface ShieldedTransaction {
+  /** Absent on records saved before withdrawals were tracked (all deposits). */
+  type?: 'deposit' | 'withdrawal';
   txHash: string;
   commitmentHash: string;
   nullifier: string;
@@ -117,16 +108,6 @@ export interface ShieldedTransaction {
   status: 'pending' | 'confirmed' | 'failed';
   blockNumber?: number;
 }
-
-export interface TokenInfo {
-  contract: string;
-  symbol: string;
-  name: string;
-  decimals: number;
-  icon?: string;
-}
-
-export type EventCallback = (...args: unknown[]) => void;
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -140,14 +121,4 @@ export interface StorageProvider {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
-}
-
-export interface SDKEvents {
-  onWalletConnected: (wallet: WalletInfo) => void;
-  onWalletDisconnected: () => void;
-  onTransferInitiated: (params: ShieldedTransferParams) => void;
-  onTransferCompleted: (result: ShieldedTransferResult) => void;
-  onTransferFailed: (error: Error) => void;
-  onViewingKeyCreated: (key: ViewingKey) => void;
-  onViewingKeyRevoked: (keyId: string) => void;
 }

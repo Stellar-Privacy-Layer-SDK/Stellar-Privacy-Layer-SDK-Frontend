@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { StrKey } from '@stellar/stellar-sdk';
 import { StellarClient } from './client';
+import { NETWORK_CONFIGS } from './config';
 import { Network } from '../types';
 
 const validContractId = StrKey.encodeContract(Buffer.alloc(32, 0x01));
@@ -65,11 +66,9 @@ vi.mock('@stellar/stellar-sdk', async () => {
   };
 });
 
-vi.mock('@stellar/freighter-api', () => ({
-  signTransaction: () => Promise.resolve({
-    signedTxXdr: 'AAAA...', signerAddress: 'GA' + 'X'.repeat(54),
-  }),
-}));
+const signed = { signedTxXdr: 'AAAA...', signerAddress: 'GA' + 'X'.repeat(54) };
+const { signTransaction } = vi.hoisted(() => ({ signTransaction: vi.fn() }));
+vi.mock('@stellar/freighter-api', () => ({ signTransaction }));
 
 describe('StellarClient', () => {
   let client: StellarClient;
@@ -80,6 +79,7 @@ describe('StellarClient', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    signTransaction.mockResolvedValue(signed);
   });
 
   afterEach(() => {
@@ -117,6 +117,32 @@ describe('StellarClient', () => {
     client.switchNetwork(Network.TESTNET);
   });
 
+  it('keeps custom endpoints and contract across wallet connect and network switches', async () => {
+    const c = new StellarClient({
+      network: {
+        ...NETWORK_CONFIGS[Network.TESTNET],
+        rpcUrl: 'https://rpc.example.com',
+        contractId: validContractId,
+      },
+    });
+    await c.connectWallet('GA' + 'X'.repeat(54), Network.TESTNET);
+    expect(c.getNetworkConfig().rpcUrl).toBe('https://rpc.example.com');
+    c.switchNetwork(Network.PUBLIC);
+    expect(c.getNetworkConfig().contractId).toBe('');
+    c.switchNetwork(Network.TESTNET);
+    expect(c.getNetworkConfig().contractId).toBe(validContractId);
+  });
+
+  it('does not reuse a contract from another network', async () => {
+    const c = new StellarClient();
+    c.setContractId(validContractId);
+    await c.connectWallet('GA' + 'X'.repeat(54), Network.PUBLIC);
+    await expect(c.depositCommitment('0x' + 'a'.repeat(64), '1', 'USDC')).rejects.toThrow(
+      'Contract not set',
+    );
+    expect(NETWORK_CONFIGS[Network.TESTNET].contractId).toBe('');
+  });
+
   it('clears wallet on disconnect', () => {
     client.connectWallet('GA' + 'X'.repeat(54));
     client.disconnectWallet();
@@ -139,15 +165,26 @@ describe('StellarClient', () => {
     expect(result).toBe('mock_hash');
   });
 
-  it('falls back to status when no hash is returned', async () => {
-    serverBehaviors.sendTransaction = () => ({ status: 'PENDING' });
+  it.each(['ERROR', 'TRY_AGAIN_LATER'])('throws when the network answers %s', async (status) => {
+    serverBehaviors.sendTransaction = () => ({ status, hash: 'rejected' });
     client.connectWallet('GA' + 'X'.repeat(54));
     client.setContractId(validContractId);
-    const result = await client.withdrawCommitment(
-      '0x' + 'b'.repeat(64), ['0x' + 'c'.repeat(64)], 'GA' + 'X'.repeat(54), '{}',
-    );
-    expect(result).toBe('PENDING');
-    serverBehaviors.sendTransaction = () => ({ status: 'SUCCESS', hash: 'mock_hash' });
+    try {
+      await expect(
+        client.depositCommitment('0x' + 'b'.repeat(64), '1', 'USDC'),
+      ).rejects.toThrow(status);
+    } finally {
+      serverBehaviors.sendTransaction = () => ({ status: 'PENDING', hash: 'mock_hash' });
+    }
+  });
+
+  it('reports a rejected signature', async () => {
+    signTransaction.mockResolvedValue({ ...signed, error: { code: -4, message: 'User declined' } });
+    client.connectWallet('GA' + 'X'.repeat(54));
+    client.setContractId(validContractId);
+    await expect(
+      client.depositCommitment('0x' + 'a'.repeat(64), '100', 'USDC'),
+    ).rejects.toThrow('User declined');
   });
 
   it('throws when sending a transaction without a wallet', async () => {
@@ -160,7 +197,16 @@ describe('StellarClient', () => {
   it('verifies proof via contract call', async () => {
     client.connectWallet('GA' + 'X'.repeat(54));
     client.setContractId(validContractId);
-    const result = await client.verifyProof(JSON.stringify({ pi_a: ['1', '2'] }), ['input1']);
+    const result = await client.verifyProof(
+      {
+        pi_a: ['1', '2'],
+        pi_b: [['3', '4'], ['5', '6']],
+        pi_c: ['7', '8'],
+        protocol: 'groth16',
+        curve: 'bn128',
+      },
+      ['1'],
+    );
     expect(result).toBe(true);
   });
 
@@ -173,27 +219,35 @@ describe('StellarClient', () => {
     ).rejects.toThrow('simulation failed');
   });
 
-  it('returns 0 balance when the account lookup fails', async () => {
-    serverBehaviors.getAccount = () => { throw new Error('account not found'); };
-    const balance = await client.getAccountBalance('GA' + 'X'.repeat(54));
-    expect(balance).toBe('0');
-  });
+  describe('getAccountBalance', () => {
+    afterEach(() => vi.unstubAllGlobals());
 
-  it('returns 0 balance when account has no balance field', async () => {
-    serverBehaviors.getAccount = () => ({ accountId: () => 'GA' + 'X'.repeat(54) });
-    const balance = await client.getAccountBalance('GA' + 'X'.repeat(54));
-    expect(balance).toBe('0');
-    serverBehaviors.getAccount = () => ({ accountId: () => 'GA' + 'X'.repeat(54) });
-  });
-
-  it('reads the account balance when present', async () => {
-    serverBehaviors.getAccount = () => ({
-      balance: '123.456',
-      accountId: () => 'GA' + 'X'.repeat(54),
+    it('reads the native balance from Horizon', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          balances: [
+            { asset_type: 'credit_alphanum4', balance: '5.0' },
+            { asset_type: 'native', balance: '123.4560000' },
+          ],
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      expect(await client.getAccountBalance('GABC')).toBe('123.4560000');
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${client.getNetworkConfig().horizonUrl}/accounts/GABC`,
+      );
     });
-    const balance = await client.getAccountBalance('GA' + 'X'.repeat(54));
-    expect(balance).toBe('123.456');
-    serverBehaviors.getAccount = () => ({ accountId: () => 'GA' + 'X'.repeat(54) });
+
+    it('returns 0 without a native balance', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+      expect(await client.getAccountBalance('GABC')).toBe('0');
+    });
+
+    it('returns 0 when the account does not exist', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+      expect(await client.getAccountBalance('GABC')).toBe('0');
+    });
   });
 
   it('returns not_found when getTransactionStatus fails', async () => {

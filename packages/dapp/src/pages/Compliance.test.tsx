@@ -38,6 +38,7 @@ describe('Compliance', () => {
     });
     mockUseSDK.mockReturnValue({
       selectiveDisclosure: {
+        getDisclosurePayload: (txHash: string) => ({ transactionHash: txHash }),
         discloseToRegulator: vi.fn().mockResolvedValue('0x' + 'd'.repeat(64)),
       },
     });
@@ -64,7 +65,7 @@ describe('Compliance', () => {
     fireEvent.change(screen.getByPlaceholderText(/GXXXXXXXXXXXXXXXXXXXX/), {
       target: { value: 'invalid' },
     });
-    fireEvent.click(screen.getByText('Submit Disclosure'));
+    fireEvent.click(screen.getByText('Prepare Disclosure'));
     expect(screen.getByText('Enter a valid Stellar public key')).toBeDefined();
   });
 
@@ -77,12 +78,13 @@ describe('Compliance', () => {
     fireEvent.change(screen.getByPlaceholderText(/GXXXXXXXXXXXXXXXXXXXX/), {
       target: { value: regulator() },
     });
-    fireEvent.click(screen.getByText('Submit Disclosure'));
+    fireEvent.click(screen.getByText('Prepare Disclosure'));
 
     await waitFor(() => {
       expect(mockUseSDK().selectiveDisclosure.discloseToRegulator).toHaveBeenCalled();
     });
-    expect(await screen.findByText('Disclosure Hash')).toBeDefined();
+    expect(await screen.findByText('Disclosure Reference')).toBeDefined();
+    expect(screen.getByText(/nothing is published on-chain/)).toBeDefined();
   });
 
   it('shows a warning when there are no transactions', () => {
@@ -101,7 +103,7 @@ describe('Compliance', () => {
     fireEvent.change(screen.getByPlaceholderText(/GXXXXXXXXXXXXXXXXXXXX/), {
       target: { value: regulator() },
     });
-    fireEvent.click(screen.getByText('Submit Disclosure'));
+    fireEvent.click(screen.getByText('Prepare Disclosure'));
     expect(screen.getByText('No transactions to disclose')).toBeDefined();
   });
 });

@@ -15,6 +15,7 @@ vi.mock('./hooks/useSDK', () => ({
   }),
   useShieldedTransfer: () => ({
     transactions: [],
+    commitments: [],
     isProcessing: false,
     error: null,
     deposit: vi.fn(),

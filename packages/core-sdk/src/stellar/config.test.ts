@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { NETWORK_CONFIGS, PRIVACY_CONTRACT_METHODS, resolveNetworkConfig } from './config';
 import { Network } from '../types';
+import { Networks } from '@stellar/stellar-sdk';
 
 describe('NETWORK_CONFIGS', () => {
   it('defines all four networks', () => {
@@ -11,6 +12,13 @@ describe('NETWORK_CONFIGS', () => {
       expect(NETWORK_CONFIGS[network].rpcUrl).toBeTruthy();
       expect(NETWORK_CONFIGS[network].networkPassphrase).toBeTruthy();
     }
+  });
+
+  it('uses the canonical Stellar network passphrases', () => {
+    expect(NETWORK_CONFIGS[Network.PUBLIC].networkPassphrase).toBe(Networks.PUBLIC);
+    expect(NETWORK_CONFIGS[Network.TESTNET].networkPassphrase).toBe(Networks.TESTNET);
+    expect(NETWORK_CONFIGS[Network.FUTURENET].networkPassphrase).toBe(Networks.FUTURENET);
+    expect(NETWORK_CONFIGS[Network.SANDBOX].networkPassphrase).toBe(Networks.STANDALONE);
   });
 
   it('exposes privacy contract method names', () => {

@@ -17,6 +17,7 @@ export function Compliance() {
   const [reason, setReason] = useState('');
   const [isDisclosing, setIsDisclosing] = useState(false);
   const [disclosureResult, setDisclosureResult] = useState<string | null>(null);
+  const [disclosureJson, setDisclosureJson] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleDisclose = async (e: React.FormEvent) => {
@@ -40,8 +41,12 @@ export function Compliance() {
         regulatorKey,
         scope,
       );
+      const payloads = transactions.map((tx) =>
+        sdk.selectiveDisclosure.getDisclosurePayload(tx.txHash),
+      );
+      setDisclosureJson(JSON.stringify(payloads, null, 2));
       setDisclosureResult(hash);
-      toast('success', 'Disclosure submitted', 'Transaction details disclosed to regulator.');
+      toast('success', 'Disclosure prepared', 'Copy the payload and send it to the regulator privately.');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Disclosure failed';
       toast('error', 'Disclosure failed', msg);
@@ -132,7 +137,7 @@ export function Compliance() {
               ) : (
                 <>
                   <Shield className="h-4 w-4" />
-                  Submit Disclosure
+                  Prepare Disclosure
                 </>
               )}
             </button>
@@ -163,7 +168,7 @@ export function Compliance() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-white">Full Disclosure</p>
-                  <p className="text-xs text-gray-400">Reveal amount, recipient, and sender</p>
+                  <p className="text-xs text-gray-400">Reveal amount and recipient</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3 rounded-lg bg-surface">
@@ -189,10 +194,16 @@ export function Compliance() {
             {disclosureResult && (
               <div className="p-3 rounded-lg bg-privacy-500/10 border border-privacy-500/20">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-privacy-400 font-medium">Disclosure Hash</span>
+                  <span className="text-xs text-privacy-400 font-medium">Disclosure Reference</span>
                   <CopyButton text={disclosureResult} />
                 </div>
                 <p className="text-xs font-mono text-gray-300 break-all">{disclosureResult}</p>
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-xs text-gray-400">
+                    Payload (nothing is published on-chain)
+                  </span>
+                  <CopyButton text={disclosureJson} />
+                </div>
               </div>
             )}
           </div>

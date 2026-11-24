@@ -1,5 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { ProofVerifier } from './verifier';
+import { ProofGenerator } from './proof-generator';
+import { SimulatedProver } from './simulated-prover';
 import { StellarClient } from '../stellar/client';
 import type { ZKProof } from '../types';
 
@@ -16,10 +18,11 @@ function validProof(): ZKProof {
 describe('ProofVerifier', () => {
   let verifier: ProofVerifier;
   let client: StellarClient;
+  const prover = new SimulatedProver();
 
   beforeAll(() => {
     client = new StellarClient();
-    verifier = new ProofVerifier(client);
+    verifier = new ProofVerifier(client, new ProofGenerator(prover));
   });
 
   describe('verifyProofStructure', () => {
@@ -37,17 +40,22 @@ describe('ProofVerifier', () => {
     });
   });
 
-  describe('generateVerificationKey', () => {
-    it('generates a key string', async () => {
-      const key = await verifier.generateVerificationKey();
-      expect(key).toBeTruthy();
-      expect(typeof key).toBe('string');
+  describe('verifyProof', () => {
+    it('uses the configured prover', async () => {
+      const verify = vi.spyOn(prover, 'verifyProof').mockResolvedValue(true);
+      expect(await verifier.verifyProof(validProof(), ['1'])).toBe(true);
+      expect(verify).toHaveBeenCalledWith(validProof(), ['1']);
+      verify.mockRestore();
     });
 
-    it('generates different keys on each call', async () => {
-      const k1 = await verifier.generateVerificationKey();
-      const k2 = await verifier.generateVerificationKey();
-      expect(k1).not.toBe(k2);
+    it('rejects malformed proofs', async () => {
+      expect(await verifier.verifyProof({} as ZKProof, ['1'])).toBe(false);
     });
+  });
+
+  it('propagates on-chain verification failures', async () => {
+    await expect(verifier.verifyProofOnChain(validProof(), ['1'])).rejects.toThrow(
+      'Wallet not connected',
+    );
   });
 });

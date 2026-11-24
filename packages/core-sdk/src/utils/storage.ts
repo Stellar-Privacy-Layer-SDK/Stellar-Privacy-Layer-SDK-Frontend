@@ -1,33 +1,48 @@
+import { logger } from './logger';
 import type { StorageProvider } from '../types';
 
 const STORAGE_PREFIX = 'stellar-privacy:';
 
 /**
- * localStorage-backed storage provider. Fails gracefully (returns null /
- * no-ops) when storage is unavailable, e.g. in private browsing modes.
+ * localStorage-backed storage provider. When localStorage rejects a write
+ * (quota, private browsing) the value is kept in memory for the session and a
+ * warning is logged, so reads stay consistent and the failure is visible.
  */
 export function createLocalStorageProvider(): StorageProvider {
+  const fallback = new Map<string, string>();
+  const warn = (operation: string, key: string, error: unknown) =>
+    logger.warn('localStorage operation failed', {
+      operation,
+      key,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
   return {
     async get(key: string): Promise<string | null> {
+      const pending = fallback.get(key);
+      if (pending !== undefined) return pending;
       try {
         return localStorage.getItem(STORAGE_PREFIX + key);
-      } catch {
-        // storage unavailable — treat as missing
+      } catch (error) {
+        warn('get', key, error);
         return null;
       }
     },
     async set(key: string, value: string): Promise<void> {
       try {
         localStorage.setItem(STORAGE_PREFIX + key, value);
-      } catch {
-        // storage full or unavailable — persistence is best-effort
+        fallback.delete(key);
+      } catch (error) {
+        fallback.set(key, value);
+        warn('set', key, error);
       }
     },
     async remove(key: string): Promise<void> {
+      fallback.delete(key);
       try {
         localStorage.removeItem(STORAGE_PREFIX + key);
-      } catch {
-        // storage unavailable
+      } catch (error) {
+        warn('remove', key, error);
       }
     },
   };

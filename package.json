@@ -31,11 +31,14 @@
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
-    "deploy": "bash scripts/deploy.sh up"
+    "deploy": "bash scripts/deploy.sh up",
+    "build:circuits": "node scripts/build-circuits.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.2",
+    "circom2": "0.2.22",
+    "circomlib": "2.0.5",
     "eslint": "^10.8.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.66.0"

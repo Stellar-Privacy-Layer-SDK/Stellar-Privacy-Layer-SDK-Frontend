@@ -21,3 +21,7 @@ packages/contract/test_snapshots/
 # Logs
 *.log
 npm-debug.log*
+
+# Generated ZK artifacts
+build/
+artifacts/

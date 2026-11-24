@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Shield, Send, Key, FileSearch, ArrowRight, Lock, Eye, Coins } from 'lucide-react';
-import { useWallet } from '../hooks/useSDK';
+import { useShieldedTransfer, useViewingKeys, useWallet } from '../hooks/useSDK';
 import { useNavigate } from 'react-router';
 
 const quickActions = [
@@ -26,15 +27,18 @@ const quickActions = [
   },
 ];
 
-const stats = [
-  { label: 'Total Shielded Transactions', value: '0', icon: Lock, color: 'text-privacy-400' },
-  { label: 'Active Viewing Keys', value: '0', icon: Eye, color: 'text-stellar-400' },
-  { label: 'Assets Protected', value: '0', icon: Coins, color: 'text-yellow-400' },
-];
-
 export function Dashboard() {
+  const [now] = useState(() => Date.now());
   const { walletInfo } = useWallet();
+  const { transactions, commitments } = useShieldedTransfer();
+  const { keys } = useViewingKeys();
   const navigate = useNavigate();
+  const activeKeys = keys.filter((k) => k.active && !(k.expiresAt && k.expiresAt < now));
+  const stats = [
+    { label: 'Total Shielded Transactions', value: transactions.length, icon: Lock, color: 'text-privacy-400' },
+    { label: 'Active Viewing Keys', value: activeKeys.length, icon: Eye, color: 'text-stellar-400' },
+    { label: 'Assets Protected', value: new Set(commitments.map((c) => c.token)).size, icon: Coins, color: 'text-yellow-400' },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in">

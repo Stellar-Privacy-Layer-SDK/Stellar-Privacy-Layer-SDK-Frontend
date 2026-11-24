@@ -26,6 +26,7 @@ describe('Dashboard', () => {
     });
     mockUseShieldedTransfer.mockReturnValue({
       transactions: [],
+      commitments: [],
       isProcessing: false,
       error: null,
       deposit: vi.fn(),
@@ -83,5 +84,25 @@ describe('Dashboard', () => {
     expect(screen.getByText('Protocol Information')).toBeDefined();
     expect(screen.getByText('ZK Curve')).toBeDefined();
     expect(screen.getByText('Stellar Protocol 25')).toBeDefined();
+  });
+
+  it('shows live statistics', () => {
+    mockUseShieldedTransfer.mockReturnValue({
+      transactions: [{}, {}, {}, {}],
+      commitments: [{ token: 'XLM' }, { token: 'XLM' }],
+    });
+    mockUseViewingKeys.mockReturnValue({
+      keys: [{ active: true }, { active: true }, { active: false }, { active: true, expiresAt: 1 }],
+    });
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+    const value = (label: string) =>
+      screen.getByText(label).parentElement?.nextElementSibling?.textContent;
+    expect(value('Total Shielded Transactions')).toBe('4');
+    expect(value('Active Viewing Keys')).toBe('2');
+    expect(value('Assets Protected')).toBe('1');
   });
 });

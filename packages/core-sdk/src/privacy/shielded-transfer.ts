@@ -1,12 +1,13 @@
 import { StellarClient } from '../stellar/client';
 import { ProofGenerator } from './proof-generator';
 import {
+  Network,
   ShieldedTransferParams,
   ShieldedTransferResult,
   Commitment,
   ShieldedTransaction,
 } from '../types';
-import { generateRandomField, poseidonHash, generateMerklePath } from '../utils/crypto';
+import { generateRandomField, generateMerklePath } from '../utils/crypto';
 import { createLocalStorageProvider } from '../utils/storage';
 import { isValidPublicKey, isValidAmount } from '../utils/encoding';
 import type { StorageProvider } from '../types';
@@ -17,6 +18,14 @@ const COMMITMENT_CACHE_KEY = 'commitments';
 
 type EventHandler = (...args: unknown[]) => void;
 
+export interface ShieldedTransferOptions {
+  /**
+   * Substitute a `simulated_…` hash when a transaction cannot be submitted.
+   * For demos and tests only: nothing reaches the network.
+   */
+  simulateOnFailure?: boolean;
+}
+
 export class ShieldedTransfer {
   private client: StellarClient;
   private proofGenerator: ProofGenerator;
@@ -25,7 +34,12 @@ export class ShieldedTransfer {
   private listeners: Map<string, Set<EventHandler>> = new Map();
   private storage: StorageProvider;
 
-  constructor(client: StellarClient, storage?: StorageProvider, proofGenerator?: ProofGenerator) {
+  constructor(
+    client: StellarClient,
+    storage?: StorageProvider,
+    proofGenerator?: ProofGenerator,
+    private options: ShieldedTransferOptions = {},
+  ) {
     this.client = client;
     this.proofGenerator = proofGenerator ?? new ProofGenerator();
     this.storage = storage ?? createLocalStorageProvider();
@@ -94,7 +108,17 @@ export class ShieldedTransfer {
     }
   }
 
+  private requireSecureProver(): void {
+    if (
+      this.proofGenerator.isSimulated() &&
+      this.client.getNetworkConfig().network === Network.PUBLIC
+    ) {
+      throw new Error('The simulated prover is insecure and cannot be used on the public network');
+    }
+  }
+
   async deposit(params: ShieldedTransferParams): Promise<ShieldedTransferResult> {
+    this.requireSecureProver();
     this.validateDepositParams(params);
     this.emit('onTransferInitiated', params);
 
@@ -118,8 +142,7 @@ export class ShieldedTransfer {
           params.token,
         );
       } catch (error) {
-        // Off-chain / demo mode: simulate the transaction so the SDK remains
-        // usable without a live network.
+        if (!this.options.simulateOnFailure) throw error;
         txHash = 'simulated_' + commitmentHash.slice(2, 18);
         logger.warn('Deposit transaction failed — simulated tx hash used', {
           error: error instanceof Error ? error.message : String(error),
@@ -128,6 +151,7 @@ export class ShieldedTransfer {
 
       const commitment: Commitment = {
         hash: commitmentHash,
+        nullifier,
         amount: params.amount,
         token: params.token,
         recipient: params.recipient,
@@ -137,6 +161,7 @@ export class ShieldedTransfer {
       this.commitments.set(commitmentHash, commitment);
 
       const tx: ShieldedTransaction = {
+        type: 'deposit',
         txHash,
         commitmentHash,
         nullifier,
@@ -176,6 +201,7 @@ export class ShieldedTransfer {
     recipient: string,
     amount: string,
   ): Promise<ShieldedTransferResult> {
+    this.requireSecureProver();
     const commitment = this.commitments.get(commitmentHash);
     if (!commitment) {
       throw new Error('Commitment not found. Deposit must be made first.');
@@ -186,8 +212,19 @@ export class ShieldedTransfer {
     if (!isValidAmount(amount)) {
       throw new Error('Invalid amount: must be a positive number');
     }
+    // No change commitments yet: a withdrawal spends the whole commitment.
+    if (amount !== commitment.amount) {
+      throw new Error(`Invalid amount: must equal the deposited amount (${commitment.amount})`);
+    }
 
-    const nullifier = await poseidonHash([commitmentHash, recipient]);
+    // The nullifier is fixed at deposit time. Deriving it from the recipient
+    // would let one commitment be spent once per recipient.
+    const nullifier =
+      commitment.nullifier ??
+      this.transactions.find((tx) => tx.commitmentHash === commitmentHash)?.nullifier;
+    if (!nullifier) {
+      throw new Error('Commitment has no nullifier and cannot be withdrawn');
+    }
 
     // Build a real Merkle membership proof for this commitment from the set of
     // known commitments (previously this was always an empty array, making the
@@ -226,6 +263,7 @@ export class ShieldedTransfer {
         JSON.stringify(withdrawalProof),
       );
     } catch (error) {
+      if (!this.options.simulateOnFailure) throw error;
       txHash = 'simulated_withdraw_' + commitmentHash.slice(2, 18);
       logger.warn('Withdraw transaction failed — simulated tx hash used', {
         error: error instanceof Error ? error.message : String(error),
@@ -233,6 +271,17 @@ export class ShieldedTransfer {
     }
 
     this.commitments.delete(commitmentHash);
+    this.transactions.push({
+      type: 'withdrawal',
+      txHash,
+      commitmentHash,
+      nullifier,
+      amount,
+      token: commitment.token,
+      recipient,
+      timestamp: Date.now(),
+      status: 'pending',
+    });
     await this.persistState();
 
     const result: ShieldedTransferResult = {
@@ -262,6 +311,33 @@ export class ShieldedTransfer {
     } catch {
       return '0';
     }
+  }
+
+  /** Commitments that have not been withdrawn yet. */
+  async getCommitments(): Promise<Commitment[]> {
+    return [...this.commitments.values()];
+  }
+
+  /**
+   * Polls the network for every pending transaction and persists the outcome.
+   * Returns true when at least one status changed.
+   */
+  async refreshPendingTransactions(): Promise<boolean> {
+    const pending = this.transactions.filter(
+      (tx) => tx.status === 'pending' && !tx.txHash.startsWith('simulated_'),
+    );
+    const statuses = await Promise.all(
+      pending.map((tx) => this.refreshTransactionStatus(tx.txHash)),
+    );
+    let changed = false;
+    pending.forEach((tx, i) => {
+      if (statuses[i] === 'SUCCESS') tx.status = 'confirmed';
+      else if (statuses[i] === 'FAILED') tx.status = 'failed';
+      else return;
+      changed = true;
+    });
+    if (changed) await this.persistState();
+    return changed;
   }
 
   async refreshTransactionStatus(txHash: string): Promise<string> {

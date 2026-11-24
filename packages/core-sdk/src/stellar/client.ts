@@ -7,9 +7,11 @@ import {
   scValToNative,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
+import { signTransaction } from '@stellar/freighter-api';
 import { EventEmitter } from 'events';
-import { Network, NetworkConfig, WalletInfo, SDKConfig } from '../types';
+import { Network, NetworkConfig, WalletInfo, SDKConfig, ZKProof } from '../types';
 import { NETWORK_CONFIGS, PRIVACY_CONTRACT_METHODS } from './config';
+import { encodeGroth16Proof, fieldBytes } from './abi';
 import { logger } from '../utils/logger';
 
 /**
@@ -24,10 +26,13 @@ export class StellarClient extends EventEmitter {
   private contract: Contract | null = null;
   private config: SDKConfig;
   private walletInfo: WalletInfo | null = null;
+  private networkConfigs = new Map<Network, NetworkConfig>();
 
   constructor(config: Partial<SDKConfig> = {}) {
     super();
-    const networkConfig = config.network || NETWORK_CONFIGS[Network.TESTNET];
+    // Copied so setContractId() never mutates the shared NETWORK_CONFIGS.
+    const networkConfig = { ...(config.network ?? NETWORK_CONFIGS[Network.TESTNET]) };
+    this.networkConfigs.set(networkConfig.network, networkConfig);
     this.config = {
       network: networkConfig,
       storageProvider: config.storageProvider,
@@ -72,11 +77,15 @@ export class StellarClient extends EventEmitter {
   }
 
   private setNetwork(network: Network): void {
-    this.config.network = NETWORK_CONFIGS[network];
+    // Custom endpoints and contract IDs belong to the network they were
+    // configured for; keep them when (re)selecting that same network.
+    if (network === this.config.network.network) return;
+    this.config.network = { ...(this.networkConfigs.get(network) ?? NETWORK_CONFIGS[network]) };
+    this.networkConfigs.set(network, this.config.network);
     this.rpc = new rpc.Server(this.config.network.rpcUrl);
-    if (this.config.network.contractId) {
-      this.contract = new Contract(this.config.network.contractId);
-    }
+    this.contract = this.config.network.contractId
+      ? new Contract(this.config.network.contractId)
+      : null;
   }
 
   disconnectWallet(): void {
@@ -143,11 +152,13 @@ export class StellarClient extends EventEmitter {
     const prepared = rpc.assembleTransaction(transaction, simulated);
     const preparedXdr = prepared.build().toEnvelope().toXDR('base64');
 
-    const { signTransaction } = await import('@stellar/freighter-api');
     const signedResult = await signTransaction(preparedXdr, {
       networkPassphrase: this.config.network.networkPassphrase,
     });
 
+    if (typeof signedResult !== 'string' && signedResult.error) {
+      throw new Error(`Transaction signing failed: ${signedResult.error.message}`);
+    }
     const signedXdr = typeof signedResult === 'string' ? signedResult : signedResult.signedTxXdr;
 
     const signedTransaction = TransactionBuilder.fromXDR(
@@ -156,7 +167,10 @@ export class StellarClient extends EventEmitter {
     );
 
     const sendResponse = await this.rpc.sendTransaction(signedTransaction);
-    const txHash = sendResponse.hash ?? sendResponse.status;
+    if (sendResponse.status === 'ERROR' || sendResponse.status === 'TRY_AGAIN_LATER') {
+      throw new Error(`Transaction rejected by the network: ${sendResponse.status}`);
+    }
+    const txHash = sendResponse.hash;
     logger.info('Transaction submitted', {
       method,
       network: this.config.network.network,
@@ -169,8 +183,15 @@ export class StellarClient extends EventEmitter {
 
   async getAccountBalance(publicKey: string): Promise<string> {
     try {
-      const account = await this.rpc.getAccount(publicKey);
-      return (account as unknown as { balance?: string }).balance || '0';
+      // Soroban RPC accounts carry no balances; Horizon does.
+      const response = await fetch(
+        `${this.config.network.horizonUrl}/accounts/${encodeURIComponent(publicKey)}`,
+      );
+      if (!response.ok) throw new Error(`Horizon responded with ${response.status}`);
+      const account = (await response.json()) as {
+        balances?: { asset_type: string; balance: string }[];
+      };
+      return account.balances?.find((b) => b.asset_type === 'native')?.balance ?? '0';
     } catch (error) {
       logger.warn('Failed to fetch account balance', {
         publicKey,
@@ -206,6 +227,11 @@ export class StellarClient extends EventEmitter {
     }
   }
 
+  /** Encodes a field element as the contract's `BytesN<32>`. */
+  private field(value: string): xdr.ScVal {
+    return nativeToScVal(fieldBytes(value), { type: 'bytes' });
+  }
+
   async depositCommitment(
     commitmentHash: string,
     amount: string,
@@ -213,7 +239,7 @@ export class StellarClient extends EventEmitter {
   ): Promise<string> {
     return this.sendTransaction(
       PRIVACY_CONTRACT_METHODS.DEPOSIT,
-      nativeToScVal(commitmentHash, { type: 'string' }),
+      this.field(commitmentHash),
       nativeToScVal(amount, { type: 'string' }),
       nativeToScVal(token, { type: 'string' }),
     );
@@ -227,18 +253,20 @@ export class StellarClient extends EventEmitter {
   ): Promise<string> {
     return this.sendTransaction(
       PRIVACY_CONTRACT_METHODS.WITHDRAW,
-      nativeToScVal(nullifier, { type: 'string' }),
-      nativeToScVal(merkleProof),
+      this.field(nullifier),
+      xdr.ScVal.scvVec(merkleProof.map((step) => this.field(step))),
       nativeToScVal(recipient, { type: 'string' }),
       nativeToScVal(proof, { type: 'string' }),
     );
   }
 
-  async verifyProof(proof: string, publicInputs: string[]): Promise<boolean> {
+  async verifyProof(proof: ZKProof, publicInputs: string[]): Promise<boolean> {
     const result = await this.callContract(
       PRIVACY_CONTRACT_METHODS.VERIFY_PROOF,
-      nativeToScVal(proof, { type: 'string' }),
-      nativeToScVal(publicInputs),
+      nativeToScVal(encodeGroth16Proof(proof), {
+        type: { a: ['symbol', 'bytes'], b: ['symbol', 'bytes'], c: ['symbol', 'bytes'] },
+      }),
+      xdr.ScVal.scvVec(publicInputs.map((input) => this.field(input))),
     );
     return scValToNative(result) as boolean;
   }
@@ -255,14 +283,6 @@ export class StellarClient extends EventEmitter {
     return this.sendTransaction(
       PRIVACY_CONTRACT_METHODS.REVOKE_VIEWING_KEY,
       nativeToScVal(publicKey, { type: 'string' }),
-    );
-  }
-
-  async discloseTransaction(txHash: string, disclosureData: string): Promise<string> {
-    return this.sendTransaction(
-      PRIVACY_CONTRACT_METHODS.DISCLOSE_TRANSACTION,
-      nativeToScVal(txHash, { type: 'string' }),
-      nativeToScVal(disclosureData, { type: 'string' }),
     );
   }
 
