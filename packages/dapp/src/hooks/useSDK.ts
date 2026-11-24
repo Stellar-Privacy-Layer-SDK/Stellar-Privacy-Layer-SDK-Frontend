@@ -77,7 +77,7 @@ export function useSDKReady(): boolean {
 
 export function useWallet() {
   const sdk = useSDK();
-  const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
+  const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(() => sdk.wallet.getWalletInfo());
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
